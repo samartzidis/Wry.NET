@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSBuild targets for local development with the wry_native Rust library.
+  
+  This file handles:
+  1. Running `cargo build` before the .NET build (incremental - skips if unchanged)
+  2. Copying the correct DLL (debug/release) to the output directory
+  
+  Properties:
+  - WryNativeSkipCargoBuild: Set to 'true' to skip cargo build (for CI or NuGet consumers)
+  - WryNativeRoot: Path to the native source directory (auto-detected from this file's location)
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <PropertyGroup>
+    <!-- Default to the src/wry-native folder relative to this targets file (samples/../src/wry-native) -->
+    <WryNativeRoot Condition="'$(WryNativeRoot)' == ''">$(MSBuildThisFileDirectory)..\src\wry-native\</WryNativeRoot>
+    <WryNativeCargoProfile Condition="'$(Configuration)' == 'Release'">release</WryNativeCargoProfile>
+    <WryNativeCargoProfile Condition="'$(Configuration)' != 'Release'">debug</WryNativeCargoProfile>
+    <WryNativeCargoArgs Condition="'$(Configuration)' == 'Release'">--release</WryNativeCargoArgs>
+    <WryNativeCargoArgs Condition="'$(Configuration)' != 'Release'"></WryNativeCargoArgs>
+    <WryNativeDllPath>$(WryNativeRoot)target\$(WryNativeCargoProfile)\wry_native.dll</WryNativeDllPath>
+  </PropertyGroup>
+
+  <!-- Run cargo build before the .NET build -->
+  <Target Name="WryNativeCargoBuild" 
+          BeforeTargets="Build"
+          Condition="'$(WryNativeSkipCargoBuild)' != 'true' And Exists('$(WryNativeRoot)Cargo.toml')">
+    <Message Importance="high" Text="Building native library ($(WryNativeCargoProfile))..." />
+    <Exec Command="cargo build $(WryNativeCargoArgs)" 
+          WorkingDirectory="$(WryNativeRoot)" 
+          StandardOutputImportance="low"
+          StandardErrorImportance="high" />
+  </Target>
+
+  <!-- Copy the native DLL to output directory -->
+  <ItemGroup Condition="'$(WryNativeSkipCargoBuild)' != 'true'">
+    <None Include="$(WryNativeDllPath)"
+          Condition="Exists('$(WryNativeDllPath)')"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="wry_native.dll"
+          Visible="false" />
+  </ItemGroup>
+
+</Project>

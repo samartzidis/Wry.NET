@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  MSBuild targets for Wry.NET NuGet package.
+
+  The runtimes/{rid}/native/ convention is handled automatically by the .NET SDK
+  when publishing with a specific RuntimeIdentifier (dotnet publish -r win-x64).
+
+  This targets file adds support for non-published scenarios (dotnet run) by
+  ensuring the correct native binary is copied to the output directory based on
+  the current platform.
+-->
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+
+  <PropertyGroup>
+    <WryNETPackageRoot>$(MSBuildThisFileDirectory)..\</WryNETPackageRoot>
+  </PropertyGroup>
+
+  <!-- Windows x64 -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) And '$(PlatformTarget)' != 'ARM64'">
+    <None Include="$(WryNETPackageRoot)runtimes\win-x64\native\wry_native.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="wry_native.dll"
+          Visible="false" />
+  </ItemGroup>
+
+  <!-- Linux x64 -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Linux'))">
+    <None Include="$(WryNETPackageRoot)runtimes\linux-x64\native\libwry_native.so"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="libwry_native.so"
+          Visible="false" />
+  </ItemGroup>
+
+  <!-- macOS x64 -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) And '$(RuntimeIdentifier)' != 'osx-arm64' And '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' != 'Arm64'">
+    <None Include="$(WryNETPackageRoot)runtimes\osx-x64\native\libwry_native.dylib"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="libwry_native.dylib"
+          Visible="false" />
+  </ItemGroup>
+
+  <!-- macOS ARM64 (Apple Silicon) -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) And ('$(RuntimeIdentifier)' == 'osx-arm64' Or '$([System.Runtime.InteropServices.RuntimeInformation]::OSArchitecture)' == 'Arm64')">
+    <None Include="$(WryNETPackageRoot)runtimes\osx-arm64\native\libwry_native.dylib"
+          CopyToOutputDirectory="PreserveNewest"
+          Link="libwry_native.dylib"
+          Visible="false" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,14 @@
+<Solution>
+  <Folder Name="/samples/">
+    <Project Path="samples/BridgeApp/BridgeApp.csproj" />
+    <Project Path="samples/HelloWorld/HelloWorld.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Wry.Bridge.Generator/Wry.Bridge.Generator.csproj" />
+    <Project Path="src/Wry.Bridge/Wry.Bridge.csproj" />
+    <Project Path="src/Wry.NET/Wry.NET.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Wry.Bridge.Generator.Tests/Wry.Bridge.Generator.Tests.csproj" />
+  </Folder>
+</Solution>

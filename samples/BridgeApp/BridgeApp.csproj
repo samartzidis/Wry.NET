@@ -1,0 +1,54 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <Platforms>AnyCPU</Platforms>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Bundle native DLLs inside single-file exe (extracted to temp at runtime) -->
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <!-- Skip binding generation from shared targets (NuGet-specific path); we run it locally below -->
+    <WryBridgeSkipBindingGeneration>true</WryBridgeSkipBindingGeneration>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="wwwroot\**" />
+    <Compile Remove="frontend\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Wry.Bridge\Wry.Bridge.csproj" />
+  </ItemGroup>
+
+  <!--
+    Import shared build targets from Wry.Bridge.
+    NuGet consumers get this automatically; with ProjectReference we import it explicitly.
+    Binding generation is skipped (NuGet-specific path); we run it locally below.
+    Frontend build, copy, runtime.ts copy, and embedding are handled by the shared targets.
+  -->
+  <Import Project="..\..\src\Wry.Bridge\build\Wry.Bridge.targets" />
+
+  <!--
+    Run the binding generator from source (instead of the NuGet-packaged tool).
+    Runs after Build but before the shared WryBridgeBuildFrontend target so that
+    generated TypeScript bindings are available when Vite builds.
+  -->
+  <Target Name="GenerateBindings" AfterTargets="Build" BeforeTargets="WryBridgeBuildFrontend">
+    <Exec Command="dotnet run --project ..\..\src\Wry.Bridge.Generator\Wry.Bridge.Generator.csproj -- &quot;$(TargetPath)&quot; &quot;frontend\src\bindings&quot;" />
+  </Target>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Extensions.Logging.Console" Version="8.0.*" />
+  </ItemGroup>
+
+  <!-- Copy app icon to output -->
+  <ItemGroup>
+    <None Include="app.ico" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+  <!-- Auto-build native library and copy DLL (dev workflow) -->
+  <Import Project="..\dev.targets" />
+
+</Project>

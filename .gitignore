@@ -1,0 +1,50 @@
+# Cursor/AI files
+.cursor/
+.memory/
+
+# Rust build artifacts
+**/target/
+Cargo.lock
+
+# .NET build artifacts
+**/bin/
+**/obj/
+*.nupkg
+
+# Debug files
+*.pdb
+
+# Node.js / Frontend build artifacts
+**/node_modules/
+**/wwwroot/
+**/dist/
+.npm/
+.pnpm-store/
+
+# IDE/editor files
+.idea/
+.vscode/
+.vs/
+*.swp
+*.swo
+*~
+*.user
+*.suo
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+**/build/

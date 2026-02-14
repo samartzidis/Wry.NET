@@ -1,0 +1,22 @@
+[package]
+name = "wry-native"
+version = "1.0.0"
+edition = "2021"
+description = "Cross-platform webview C API built on wry + tao"
+license = "MIT"
+
+[lib]
+crate-type = ["cdylib"]
+
+[features]
+devtools = []
+
+[dependencies]
+wry = "0.54.1"
+tao = "0.34"
+once_cell = "1"
+http = "1.1"
+image = { version = "0.25", default-features = false, features = ["png", "ico", "jpeg", "bmp", "gif"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+windows = { version = "0.61", features = [] }

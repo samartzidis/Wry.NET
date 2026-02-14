@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>Wry.NET</RootNamespace>
+    <AssemblyName>Wry.NET</AssemblyName>
+
+    <!-- NuGet package metadata -->
+    <PackageId>Wry.NET</PackageId>
+    <Version>1.0.0</Version>
+    <Description>Cross-platform native webview library built on wry + tao, with a managed .NET P/Invoke wrapper.</Description>
+    <Authors>George Samartzidis</Authors>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageTags>webview;native;wry;tao;cross-platform</PackageTags>
+    <RepositoryUrl>https://github.com/samartzidis/Wry.NET</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- CI downloads native binaries here; doesn't exist during local dev -->
+    <WryNativeRuntimesDir Condition="'$(WryNativeRuntimesDir)' == ''">$(MSBuildProjectDirectory)\..\..\build\runtimes</WryNativeRuntimesDir>
+  </PropertyGroup>
+
+  <!-- Pack native binaries when available (CI only) -->
+  <ItemGroup Condition="Exists('$(WryNativeRuntimesDir)')">
+    <None Include="$(WryNativeRuntimesDir)\**\*"
+          Pack="true" PackagePath="runtimes\" />
+  </ItemGroup>
+
+  <!-- Pack MSBuild targets (auto-imported by NuGet consumers) -->
+  <ItemGroup>
+    <None Include="build\Wry.NET.targets"
+          Pack="true" PackagePath="build\" />
+    <None Include="build\Wry.NET.targets"
+          Pack="true" PackagePath="buildTransitive\" />
+  </ItemGroup>
+
+</Project>

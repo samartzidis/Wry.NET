@@ -1,0 +1,170 @@
+name: Build, Test & Package
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Test: run .NET unit tests (Wry.Bridge.Generator.Tests)
+  # ---------------------------------------------------------------------------
+  test:
+    runs-on: windows-latest
+    name: Test
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Test
+        run: dotnet test tests/Wry.Bridge.Generator.Tests/Wry.Bridge.Generator.Tests.csproj -c Release --verbosity normal
+
+  # ---------------------------------------------------------------------------
+  # Matrix build: compile the cdylib on each platform
+  # ---------------------------------------------------------------------------
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            rid: win-x64
+            artifact: wry_native.dll
+            artifact_path: src/wry-native/target/x86_64-pc-windows-msvc/release/wry_native.dll
+
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            rid: linux-x64
+            artifact: libwry_native.so
+            artifact_path: src/wry-native/target/x86_64-unknown-linux-gnu/release/libwry_native.so
+
+          - os: macos-latest
+            target: x86_64-apple-darwin
+            rid: osx-x64
+            artifact: libwry_native.dylib
+            artifact_path: src/wry-native/target/x86_64-apple-darwin/release/libwry_native.dylib
+
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            rid: osx-arm64
+            artifact: libwry_native.dylib
+            artifact_path: src/wry-native/target/aarch64-apple-darwin/release/libwry_native.dylib
+
+    runs-on: ${{ matrix.os }}
+    name: Build (${{ matrix.rid }})
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Linux dependencies
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+
+      - name: Build (release)
+        working-directory: src/wry-native
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Upload native binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: native-${{ matrix.rid }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Package: collect all binaries and produce a NuGet package
+  # ---------------------------------------------------------------------------
+  package:
+    needs: [build, test]
+    runs-on: windows-latest
+    name: Package NuGet
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download win-x64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: native-win-x64
+          path: build/runtimes/win-x64/native
+
+      - name: Download linux-x64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: native-linux-x64
+          path: build/runtimes/linux-x64/native
+
+      - name: Download osx-x64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: native-osx-x64
+          path: build/runtimes/osx-x64/native
+
+      - name: Download osx-arm64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: native-osx-arm64
+          path: build/runtimes/osx-arm64/native
+
+      - name: List native binaries
+        shell: bash
+        run: find build/runtimes -type f | sort
+
+      - name: Pack Wry.NET
+        run: dotnet pack src/Wry.NET/Wry.NET.csproj -c Release -o artifacts
+
+      - name: Pack Wry.Bridge
+        run: dotnet pack src/Wry.Bridge/Wry.Bridge.csproj -c Release -o artifacts
+
+      - name: Upload NuGet package
+        uses: actions/upload-artifact@v4
+        with:
+          name: nuget-package
+          path: artifacts/*.nupkg
+          if-no-files-found: error
+
+  # ---------------------------------------------------------------------------
+  # Release: create a GitHub Release with NuGet packages (only on tag push)
+  # ---------------------------------------------------------------------------
+  release:
+    needs: package
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download NuGet artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: nuget-package
+          path: release-packages
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: Release ${{ github.ref_name }}
+          files: release-packages/*.nupkg
+          generate_release_notes: true
