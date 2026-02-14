@@ -1,12 +1,12 @@
 name: Build, Test & Package
 
 on:
-  push:
-    branches: [main]
-    tags: ['v*']
-  pull_request:
-    branches: [main]
   workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag (e.g. v1.0.0). Leave empty to only build, test and package.'
+        required: false
+        type: string
 
 env:
   CARGO_TERM_COLOR: always
@@ -146,11 +146,11 @@ jobs:
           if-no-files-found: error
 
   # ---------------------------------------------------------------------------
-  # Release: create a GitHub Release with NuGet packages (only on tag push)
+  # Release: create a GitHub Release with NuGet packages (only when tag_name input is set)
   # ---------------------------------------------------------------------------
   release:
     needs: package
-    if: startsWith(github.ref, 'refs/tags/')
+    if: github.event.inputs.tag_name != ''
     runs-on: windows-latest
     permissions:
       contents: write
@@ -164,7 +164,7 @@ jobs:
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.ref_name }}
-          name: Release ${{ github.ref_name }}
+          tag_name: ${{ github.event.inputs.tag_name }}
+          name: Release ${{ github.event.inputs.tag_name }}
           files: release-packages/*.nupkg
           generate_release_notes: true
