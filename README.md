@@ -37,6 +37,7 @@ Its portability relies on .NET rather than in producing different native target 
 - **Cancellation** — cancel long-running .NET calls from JavaScript with `CancellationToken` auto-injection
 - **Events** — push typed events from .NET to JavaScript via `bridge.Emit()`
 - **Single-file publishing** — embed frontend assets into the executable and serve via custom URI scheme
+- **System tray icons** — cross-platform tray icons with context menus, click events, and dynamic icon updates
 - **Zero-config build** — MSBuild `.targets` auto-imported via NuGet; `dotnet build` does everything
 - **Framework agnostic** — works with React, Vue, Svelte, Angular, or plain TypeScript
 
@@ -44,7 +45,7 @@ Its portability relies on .NET rather than in producing different native target 
 
 | Project | What it does |
 |---------|----------------|
-| **wry-native** | Rust cdylib exposing a C API for wry (webview) + tao (windowing). Consumed by Wry.NET via P/Invoke. For a detailed mapping of the wry 0.54.1 API to the wry-native C API, see [src/wry-native/api-coverage.md](src/wry-native/api-coverage.md). |
+| **wry-native** | Rust cdylib exposing a C API for wry (webview) + tao (windowing) + tray-icon (system tray). Consumed by Wry.NET via P/Invoke. For a detailed mapping of the wry 0.54.1 API to the wry-native C API, see [src/wry-native/api-coverage.md](src/wry-native/api-coverage.md). |
 | **[Wry.NET](src/Wry.NET/README.md)** | Managed .NET 8 wrapper: P/Invoke bindings, events, and window lifecycle. NuGet: `Wry.NET`. |
 | **[Wry.Bridge](src/Wry.Bridge/README.md)** | Typed RPC bridge: C# services callable from TypeScript with auto-generated bindings. NuGet: `Wry.Bridge`. Depends on Wry.NET. |
 | **Wry.Bridge.Generator** | CLI that generates TypeScript from `[BridgeService]` assemblies. Used at build time by Wry.Bridge. |

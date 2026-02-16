@@ -68,6 +68,47 @@ public enum WryPageLoadEvent
     Finished = 1,
 }
 
+/// <summary>
+/// Type of tray icon event.
+/// </summary>
+public enum TrayIconEventType
+{
+    /// <summary>Single click on the tray icon.</summary>
+    Click = 0,
+    /// <summary>Double click on the tray icon.</summary>
+    DoubleClick = 1,
+    /// <summary>Mouse cursor entered the tray icon area.</summary>
+    Enter = 2,
+    /// <summary>Mouse cursor moved within the tray icon area.</summary>
+    Move = 3,
+    /// <summary>Mouse cursor left the tray icon area.</summary>
+    Leave = 4,
+}
+
+/// <summary>
+/// Mouse button involved in a tray icon event.
+/// </summary>
+public enum TrayMouseButton
+{
+    /// <summary>Left mouse button.</summary>
+    Left = 0,
+    /// <summary>Right mouse button.</summary>
+    Right = 1,
+    /// <summary>Middle mouse button.</summary>
+    Middle = 2,
+}
+
+/// <summary>
+/// State of the mouse button in a tray icon click event.
+/// </summary>
+public enum TrayMouseButtonState
+{
+    /// <summary>Button was released.</summary>
+    Up = 0,
+    /// <summary>Button was pressed.</summary>
+    Down = 1,
+}
+
 // ---------------------------------------------------------------------------
 // Structs
 // ---------------------------------------------------------------------------
@@ -123,6 +164,27 @@ public sealed class CloseRequestedEventArgs : EventArgs
 {
     /// <summary>Set to true to prevent the window from closing.</summary>
     public bool Cancel { get; set; }
+}
+
+/// <summary>
+/// Event args raised when all windows have closed or when
+/// <see cref="WryApp.Exit"/> is called. Set <see cref="Cancel"/> to true to
+/// keep the event loop running (e.g. for tray-icon-only mode). If no handler
+/// cancels, the application exits and any remaining tray icons are removed
+/// automatically.
+/// </summary>
+public sealed class ExitRequestedEventArgs : EventArgs
+{
+    /// <summary>
+    /// The exit code if this was a programmatic exit via <see cref="WryApp.Exit"/>,
+    /// or null if the last window was closed by the user.
+    /// </summary>
+    public int? ExitCode { get; }
+
+    /// <summary>Set to true to prevent the application from exiting.</summary>
+    public bool Cancel { get; set; }
+
+    internal ExitRequestedEventArgs(int? exitCode) => ExitCode = exitCode;
 }
 
 /// <summary>
@@ -283,4 +345,68 @@ public sealed class ProtocolResponse
     /// Access-Control-Allow-Origin, etc.
     /// </summary>
     public Dictionary<string, string>? Headers { get; set; }
+}
+
+/// <summary>
+/// Event args for tray icon events (click, double-click, mouse enter/move/leave).
+/// </summary>
+public sealed class TrayIconEventArgs : EventArgs
+{
+    /// <summary>The type of tray icon event.</summary>
+    public TrayIconEventType EventType { get; }
+
+    /// <summary>Mouse X position in physical pixels.</summary>
+    public double X { get; }
+
+    /// <summary>Mouse Y position in physical pixels.</summary>
+    public double Y { get; }
+
+    /// <summary>Tray icon rect X position.</summary>
+    public double IconX { get; }
+
+    /// <summary>Tray icon rect Y position.</summary>
+    public double IconY { get; }
+
+    /// <summary>Tray icon rect width.</summary>
+    public uint IconWidth { get; }
+
+    /// <summary>Tray icon rect height.</summary>
+    public uint IconHeight { get; }
+
+    /// <summary>Which mouse button was involved (for Click/DoubleClick events).</summary>
+    public TrayMouseButton Button { get; }
+
+    /// <summary>Mouse button state (for Click events).</summary>
+    public TrayMouseButtonState ButtonState { get; }
+
+    public TrayIconEventArgs(
+        TrayIconEventType eventType,
+        double x, double y,
+        double iconX, double iconY, uint iconWidth, uint iconHeight,
+        TrayMouseButton button, TrayMouseButtonState buttonState)
+    {
+        EventType = eventType;
+        X = x;
+        Y = y;
+        IconX = iconX;
+        IconY = iconY;
+        IconWidth = iconWidth;
+        IconHeight = iconHeight;
+        Button = button;
+        ButtonState = buttonState;
+    }
+}
+
+/// <summary>
+/// Event args for tray context menu item click events.
+/// </summary>
+public sealed class TrayMenuItemClickedEventArgs : EventArgs
+{
+    /// <summary>The string ID of the menu item that was clicked.</summary>
+    public string ItemId { get; }
+
+    public TrayMenuItemClickedEventArgs(string itemId)
+    {
+        ItemId = itemId;
+    }
 }

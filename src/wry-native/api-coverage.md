@@ -1,10 +1,15 @@
-# wry API coverage (wry-native vs wry 0.54.1)
+# API coverage (wry-native)
 
-Compares **wry 0.54.1** public API to **wry-native** C API. Desktop only (Windows, Linux, macOS). **Summary:** ~60–70% covered; ~30–40% not covered. **Covered?** ✓ = yes, ✗ = no.
+This document describes what the **wry-native** C API exposes. Desktop only (Windows, Linux, macOS).
+
+- **wry 0.54** — WebView/window API; ~60–70% of wry’s public API covered below.
+- **App lifecycle** — Exit-requested callback and programmatic exit.
+- **tray-icon 0.21** — System tray icons and context menus; coverage table below.
+
+**Covered?** ✓ = yes, ✗ = no.
 
 | Category | wry API | Covered? | wry-native / Notes |
 |----------|---------|:--------:|--------------------|
-| **App** | (app lifecycle) | ✓ | `wry_app_new`, `wry_app_run`, `wry_app_destroy` |
 | **Window** | (one window per tao window) | ✓ | `wry_window_new`; configure before run, then callbacks/dispatch |
 | **Builder** | `with_url` | ✓ | `wry_window_load_url` |
 | **Builder** | `with_html` | ✓ | `wry_window_load_html` |
@@ -81,6 +86,40 @@ Compares **wry 0.54.1** public API to **wry-native** C API. Desktop only (Window
 | **Types** | ProxyConfig, ProxyEndpoint | ✗ | Not exposed |
 | **Types** | WebContext, Rect (first-class), InitializationScript (main-only), MemoryUsageLevel; wry Error/Result | ✗ | Not exposed |
 
+## App lifecycle
+
+| Category | API | wry-native |
+|----------|-----|------------|
+| **App** | Create / run / destroy | `wry_app_new`, `wry_app_run`, `wry_app_destroy` |
+| **App** | Exit requested callback | `wry_app_on_exit_requested` - fires when all windows close or on `wry_app_exit`; callback receives `has_code` + `code`, returns bool (allow/prevent) |
+| **App** | Programmatic exit | `wry_app_exit(app, code)` - request exit from any thread; fires exit-requested callback with the code |
+
+## tray-icon API coverage (tray-icon 0.21)
+
+| Category | tray-icon API | Covered? | wry-native / Notes |
+|----------|---------------|:--------:|--------------------|
+| **Lifecycle** | `TrayIconBuilder::new()` | ✓ | `wry_tray_new` (pre-run), creates pending tray; materialized at Init |
+| **Builder** | `.with_tooltip()` | ✓ | `wry_tray_set_tooltip` / `wry_tray_set_tooltip_direct` |
+| **Builder** | `.with_title()` | ✓ | `wry_tray_set_title` / `wry_tray_set_title_direct` (macOS) |
+| **Builder** | `.with_icon()` | ✓ | `wry_tray_set_icon` (RGBA) / `wry_tray_set_icon_from_bytes` (encoded image) |
+| **Builder** | `.with_menu()` | ✓ | `wry_tray_set_menu` / `wry_tray_set_menu_direct` |
+| **Builder** | `.with_icon_as_template()` | ✓ | `wry_tray_set_icon_as_template` / `_direct` (macOS) |
+| **Builder** | `.with_menu_on_left_click()` | ✓ | `wry_tray_set_menu_on_left_click` / `_direct` |
+| **TrayIcon** | `set_visible()` | ✓ | `wry_tray_set_visible` / `wry_tray_set_visible_direct` |
+| **TrayIcon** | (removal) | ✓ | `wry_tray_remove` - removes from event loop, triggers exit check |
+| **Events** | `TrayIconEvent` | ✓ | `wry_tray_on_event` - Click, DoubleClick, Enter, Move, Leave with position, icon rect, button, button state |
+| **Events** | `MenuEvent` | ✓ | `wry_tray_on_menu_event` - menu item ID string |
+| **Threading** | (cross-thread) | ✓ | `wry_tray_dispatch` |
+| **Menu** | `Menu::new()` | ✓ | `wry_tray_menu_new` |
+| **Menu** | `MenuItem` | ✓ | `wry_tray_menu_add_item(id, label, enabled)` |
+| **Menu** | `CheckMenuItem` | ✓ | `wry_tray_menu_add_check_item(id, label, checked, enabled)` |
+| **Menu** | `PredefinedMenuItem::separator()` | ✓ | `wry_tray_menu_add_separator` |
+| **Menu** | `Submenu` | ✓ | `wry_tray_menu_add_submenu(label, enabled)` - returns submenu pointer |
+| **Menu** | (cleanup) | ✓ | `wry_tray_menu_destroy` |
+| **Menu** | Accelerators / keyboard shortcuts | ✗ | Not exposed |
+| **Menu** | `PredefinedMenuItem` (Copy, Paste, etc.) | ✗ | Only separator exposed |
+| **Menu** | `IconMenuItem` | ✗ | Not exposed |
+
 **Counts (desktop, approximate)**
 
 | Layer | wry | wry-native |
@@ -89,3 +128,5 @@ Compares **wry 0.54.1** public API to **wry-native** C API. Desktop only (Window
 | WebView methods | ~25 | ~20 |
 | Platform extension traits (Windows) | ~9 | 5 |
 | Platform extension traits (macOS/Linux) | Many | 0 |
+| tray-icon builder/methods | ~12 | ~12 |
+| tray-icon menu items | ~6 | 4 |

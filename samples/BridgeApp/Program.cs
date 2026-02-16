@@ -47,9 +47,39 @@ namespace SampleApp
                     window.Visible = true;
             };
 
+            // --- Tray icon ---
+            var tray = app.CreateTrayIcon();
+            tray.Tooltip = "Wry.NET Bridge App";
+
+            if (File.Exists(iconPath))
+                tray.SetIconFromBytes(File.ReadAllBytes(iconPath));
+
+            var menu = new WryTrayMenu();
+            menu.AddItem("show", "Show Window");
+            menu.AddItem("hide", "Hide Window");
+            menu.AddSeparator();
+            menu.AddItem("quit", "Quit");
+            tray.Menu = menu;
+
+            tray.MenuItemClicked += (_, e) =>
+            {
+                switch (e.ItemId)
+                {
+                    case "show":
+                        window.Dispatch(w => w.Visible = true);
+                        break;
+                    case "hide":
+                        window.Dispatch(w => w.Visible = false);
+                        break;
+                    case "quit":
+                        window.Dispatch(w => w.Close());
+                        break;
+                }
+            };
+
             // Resolve dev URL from CLI arg (--dev-url=...) or environment variable.
             // When set, the WebView loads from the dev server (e.g. Vite HMR) instead of
-            // embedded/disk assets. Any approach works — this is the sample's choice, not the library's.
+            // embedded/disk assets. Any approach works - this is the sample's choice, not the library's.
             var devUrl = args.FirstOrDefault(a => a.StartsWith("--dev-url="))?.Split('=', 2)[1]
                       ?? Environment.GetEnvironmentVariable("WRY_DEV_URL");
 

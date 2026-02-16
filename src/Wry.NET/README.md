@@ -4,8 +4,10 @@ Managed .NET 8 wrapper for the **wry-native** C API: cross-platform webview wind
 
 ## Main types
 
-- **`WryApp`** — App lifecycle: create windows, register callbacks, then `Run()` to enter the event loop.
+- **`WryApp`** — App lifecycle: create windows and tray icons, then `Run()` to enter the event loop. Fires `ExitRequested` when all windows close.
 - **`WryWindow`** — Configure (title, size, URL, etc.) before run; after run, use properties, methods, events, and `Dispatch()` for cross-thread calls.
+- **`WryTrayIcon`** — System tray icon with tooltip, icon, and context menu. Fires `TrayEvent` and `MenuItemClicked` events.
+- **`WryTrayMenu`** — Builder for tray context menus: regular items, checkable items, separators, and submenus.
 
 ## Getting started
 

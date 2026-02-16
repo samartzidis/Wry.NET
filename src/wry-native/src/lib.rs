@@ -24,6 +24,7 @@ use std::ffi::{c_char, c_int, c_void, CStr, CString};
 
 /// Log a wry Result error to stderr if it failed. Used instead of `let _ =`
 /// so that errors are visible in debug output.
+#[macro_export]
 macro_rules! log_err {
     ($expr:expr, $ctx:expr) => {
         if let Err(e) = $expr {
@@ -42,6 +43,9 @@ use wry::{webview_version, WebContext, WebView, WebViewBuilder};
 
 #[cfg(target_os = "windows")]
 use wry::WebViewBuilderExtWindows;
+
+mod tray;
+use tray::{WryTray, TrayDispatchCallback};
 
 // ---------------------------------------------------------------------------
 // Callback type aliases (C function pointers)
@@ -83,6 +87,13 @@ type FocusCallback = extern "C" fn(bool, *mut c_void);
 /// Dispatch callback: fn(window: *mut WryWindow, ctx: *mut c_void)
 type DispatchCallback = extern "C" fn(*mut WryWindow, *mut c_void);
 
+/// Exit requested callback: fn(has_code: bool, code: c_int, ctx: *mut c_void) -> bool
+/// Called when all windows are closed or when wry_app_exit is called.
+/// - `has_code` false: user-initiated (last window closed)
+/// - `has_code` true: programmatic exit via wry_app_exit, `code` is the exit code
+/// Return true to allow exit, false to prevent.
+type ExitRequestedCallback = extern "C" fn(bool, c_int, *mut c_void) -> bool;
+
 /// Monitor enumeration callback:
 ///   fn(x: c_int, y: c_int, width: c_int, height: c_int, scale: f64, ctx: *mut c_void)
 /// Called once per monitor. Position is the top-left corner in physical pixels.
@@ -118,12 +129,30 @@ type DragDropCallback =
 // UserEvent -- messages sent to the event loop from any thread
 // ---------------------------------------------------------------------------
 
-enum UserEvent {
-    /// Execute a C callback on the event loop thread.
+pub(crate) enum UserEvent {
+    /// Execute a C callback on the event loop thread for a window.
     Dispatch {
         window_id: usize,
         callback: DispatchCallback,
         ctx: usize, // *mut c_void stored as usize for Send
+    },
+    /// Forward a tray icon event from the global handler.
+    TrayEvent(tray_icon::TrayIconEvent),
+    /// Forward a tray menu event from the global handler.
+    TrayMenuEvent(tray_icon::menu::MenuEvent),
+    /// Execute a C callback on the event loop thread for a tray.
+    TrayDispatch {
+        tray_id: usize,
+        callback: TrayDispatchCallback,
+        ctx: usize,
+    },
+    /// Remove a tray icon and check exit condition.
+    TrayRemove {
+        tray_id: usize,
+    },
+    /// Programmatic exit request via wry_app_exit.
+    RequestExit {
+        code: c_int,
     },
 }
 
@@ -536,9 +565,12 @@ impl WryWindow {
 
 pub struct WryApp {
     event_loop: Option<EventLoop<UserEvent>>,
-    proxy: EventLoopProxy<UserEvent>,
+    pub(crate) proxy: EventLoopProxy<UserEvent>,
     windows: HashMap<usize, WryWindow>,
     next_window_id: usize,
+    pub(crate) trays: HashMap<usize, WryTray>,
+    pub(crate) next_tray_id: usize,
+    exit_requested_handler: Option<(ExitRequestedCallback, usize)>,
 }
 
 // Safety: WryApp is only accessed from the main thread. The proxy field is
@@ -552,7 +584,7 @@ unsafe impl Sync for WryApp {}
 // Helper: read a C string into a Rust String, returning empty on null.
 // ---------------------------------------------------------------------------
 
-unsafe fn c_str_to_string(s: *const c_char) -> String {
+pub(crate) unsafe fn c_str_to_string(s: *const c_char) -> String {
     if s.is_null() {
         return String::new();
     }
@@ -580,6 +612,9 @@ pub extern "C" fn wry_app_new() -> *mut WryApp {
         proxy,
         windows: HashMap::new(),
         next_window_id: 1,
+        trays: HashMap::new(),
+        next_tray_id: 1,
+        exit_requested_handler: None,
     };
     Box::into_raw(Box::new(app))
 }
@@ -604,6 +639,18 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
     // Also keep a map from our usize id -> WindowId for dispatch lookups.
     let mut id_to_window_id: HashMap<usize, WindowId> = HashMap::new();
 
+    // Move trays out of the app struct.
+    let mut pending_trays: Vec<WryTray> = app.trays.drain().map(|(_, t)| t).collect();
+    let mut live_trays: HashMap<usize, WryTray> = HashMap::new();
+    // Map from menu item string ID to tray usize ID for event routing.
+    let mut menu_id_to_tray: HashMap<String, usize> = HashMap::new();
+
+    // Exit-requested callback (fired when all windows are closed).
+    let exit_requested_handler = app.exit_requested_handler.take();
+
+    // Wire up tray icon / menu event handlers to forward into the event loop.
+    tray::setup_tray_event_handlers(&app.proxy);
+
     // Use run_return so we return to the caller instead of calling process::exit.
     event_loop.run_return(move |event, event_loop_target, control_flow| {
         *control_flow = ControlFlow::Wait;
@@ -618,6 +665,15 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                         id_to_window_id.insert(our_id, wid);
                         live_windows.insert(wid, win);
                     }
+                }
+                // Materialize all pending tray icons.
+                for mut tray in pending_trays.drain(..) {
+                    let our_id = tray.id;
+                    tray.create();
+                    for mid in &tray.menu_item_ids {
+                        menu_id_to_tray.insert(mid.clone(), our_id);
+                    }
+                    live_trays.insert(our_id, tray);
                 }
             }
 
@@ -637,7 +693,15 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                             if allow {
                                 live_windows.remove(&window_id);
                                 if live_windows.is_empty() {
-                                    *control_flow = ControlFlow::Exit;
+                                    let should_exit = if let Some((cb, ctx)) = exit_requested_handler {
+                                        cb(false, 0, ctx as *mut c_void)
+                                    } else {
+                                        true
+                                    };
+                                    if should_exit {
+                                        live_trays.clear();
+                                        *control_flow = ControlFlow::Exit;
+                                    }
                                 }
                             }
                         }
@@ -671,11 +735,73 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                     callback,
                     ctx,
                 } => {
-                    if let Some(wid) = id_to_window_id.get(&our_id) {
-                        if let Some(win) = live_windows.get_mut(wid) {
+                    let mut destroyed_wid = None;
+                    if let Some(wid) = id_to_window_id.get(&our_id).copied() {
+                        if let Some(win) = live_windows.get_mut(&wid) {
                             let win_ptr = win as *mut WryWindow;
                             callback(win_ptr, ctx as *mut c_void);
+                            // If the callback destroyed the window (e.g. wry_window_close),
+                            // clean up live_windows so the exit check works.
+                            if win.window.is_none() {
+                                destroyed_wid = Some(wid);
+                            }
                         }
+                    }
+                    if let Some(wid) = destroyed_wid {
+                        live_windows.remove(&wid);
+                        if live_windows.is_empty() {
+                            let should_exit = if let Some((cb, ctx)) = exit_requested_handler {
+                                cb(false, 0, ctx as *mut c_void)
+                            } else {
+                                true
+                            };
+                            if should_exit {
+                                live_trays.clear();
+                                *control_flow = ControlFlow::Exit;
+                            }
+                        }
+                    }
+                }
+
+                UserEvent::TrayEvent(ref event) => {
+                    if let Ok(our_id) = event.id().as_ref().parse::<usize>() {
+                        if let Some(t) = live_trays.get(&our_id) {
+                            t.handle_tray_event(event);
+                        }
+                    }
+                }
+
+                UserEvent::TrayMenuEvent(ref event) => {
+                    let menu_id: &str = event.id.as_ref();
+                    if let Some(&our_id) = menu_id_to_tray.get(menu_id) {
+                        if let Some(t) = live_trays.get(&our_id) {
+                            t.handle_menu_event(menu_id);
+                        }
+                    }
+                }
+
+                UserEvent::TrayDispatch { tray_id, callback, ctx } => {
+                    if let Some(t) = live_trays.get_mut(&tray_id) {
+                        t.handle_dispatch(callback, ctx);
+                    }
+                }
+
+                UserEvent::TrayRemove { tray_id } => {
+                    live_trays.remove(&tray_id);
+                    if live_windows.is_empty() && live_trays.is_empty() {
+                        *control_flow = ControlFlow::Exit;
+                    }
+                }
+
+                UserEvent::RequestExit { code } => {
+                    let should_exit = if let Some((cb, ctx)) = exit_requested_handler {
+                        cb(true, code, ctx as *mut c_void)
+                    } else {
+                        true
+                    };
+                    if should_exit {
+                        live_trays.clear();
+                        *control_flow = ControlFlow::Exit;
                     }
                 }
             },
@@ -683,6 +809,33 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
             _ => {}
         }
     });
+}
+
+/// Register a callback that fires when all windows have closed or when
+/// `wry_app_exit` is called. The callback receives `has_code` (false for
+/// user-initiated, true for programmatic), `code` (the exit code when
+/// has_code is true), and the context pointer. Return true to allow exit,
+/// false to prevent it. Must be called before `wry_app_run`.
+#[no_mangle]
+pub extern "C" fn wry_app_on_exit_requested(
+    app: *mut WryApp,
+    callback: ExitRequestedCallback,
+    ctx: *mut c_void,
+) {
+    if app.is_null() { return; }
+    let app = unsafe { &mut *app };
+    app.exit_requested_handler = Some((callback, ctx as usize));
+}
+
+/// Request the application to exit with the given exit code.
+/// This fires the exit-requested callback (if registered) with has_code=true.
+/// If the callback allows exit (or none is registered), the event loop exits
+/// and any remaining tray icons are removed. Safe to call from any thread.
+#[no_mangle]
+pub extern "C" fn wry_app_exit(app: *mut WryApp, code: c_int) {
+    if app.is_null() { return; }
+    let app = unsafe { &*app };
+    log_err!(app.proxy.send_event(UserEvent::RequestExit { code }), "request exit");
 }
 
 /// Destroy the application handle and free resources.
@@ -2412,3 +2565,4 @@ pub extern "C" fn wry_window_dispatch(
         ctx: ctx as usize,
     }), "dispatch");
 }
+
