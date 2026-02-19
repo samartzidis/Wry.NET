@@ -24,7 +24,7 @@ Build single executable desktop applications using .NET and your favourite web t
 
 Wry.NET draws inspiration from cross-platform desktop application frameworks such as [Tauri](https://tauri.app) and [Wails](https://wails.io). Its webview component engine - [wry](https://github.com/tauri-apps/wry) - is sourced from the popular Tauri project so it's battle-tested and well-maintained.
 
-Wry.NET differentiates itself from these frameworks by focusing on .NET for the backend and by remaining a small, unopinionated library rather than an application framework. This allows more freedom in development choices and the build process. In that respect it is closer to the [Photino.NET](https://github.com/tryphotino/photino.NET) project than to Wails or Tauri. However, it goes beyond Photino.NET by offering automatic .NET-to-TypeScript/JavaScript bindings and by building on the robust, highly maintainable wry library.
+Wry.NET differentiates itself from these frameworks by focusing on .NET for the backend and by remaining a small, unopinionated library rather than an application framework. This allows more freedom in development choices and the build process. In that respect it is closer to the [Photino.NET](https://github.com/tryphotino/photino.NET) project than to Wails or Tauri. However, it goes beyond Photino.NET by offering automatic .NET-to-TypeScript/JavaScript bindings and by building on the robust, well maintained wry library.
 
 Its portability relies on .NET rather than in producing different native target executables per target platform. This results in more predictable cross-platform application behaviours and easier builds (no cross-compilations). As it relies on webview, and the .NET runtime, it results in very small portable executables.
 
@@ -285,3 +285,4 @@ dotnet pack src/Wry.Bridge/Wry.Bridge.csproj -c Release -o nupkg
 ## License
 
 MIT
+
