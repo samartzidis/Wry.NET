@@ -109,6 +109,34 @@ public enum TrayMouseButtonState
     Down = 1,
 }
 
+/// <summary>
+/// Dialog kind (icon / severity) for message, ask, and confirm dialogs.
+/// </summary>
+public enum WryDialogKind
+{
+    /// <summary>Information.</summary>
+    Info = 0,
+    /// <summary>Warning.</summary>
+    Warning = 1,
+    /// <summary>Error.</summary>
+    Error = 2,
+}
+
+/// <summary>
+/// Button set for message dialogs.
+/// </summary>
+public enum WryDialogButtons
+{
+    /// <summary>Single Ok button.</summary>
+    Ok = 0,
+    /// <summary>Ok and Cancel.</summary>
+    OkCancel = 1,
+    /// <summary>Yes and No.</summary>
+    YesNo = 2,
+    /// <summary>Yes, No, and Cancel.</summary>
+    YesNoCancel = 3,
+}
+
 // ---------------------------------------------------------------------------
 // Structs
 // ---------------------------------------------------------------------------

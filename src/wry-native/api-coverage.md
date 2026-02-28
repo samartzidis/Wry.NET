@@ -5,6 +5,7 @@ This document describes what the **wry-native** C API exposes. Desktop only (Win
 - **wry 0.54** — WebView/window API; ~60–70% of wry’s public API covered below.
 - **App lifecycle** — Exit-requested callback and programmatic exit.
 - **tray-icon 0.21** — System tray icons and context menus; coverage table below.
+- **rfd 0.17** — Native dialogs (message, ask, confirm, open, save); coverage table below.
 
 **Covered?** ✓ = yes, ✗ = no.
 
@@ -86,6 +87,16 @@ This document describes what the **wry-native** C API exposes. Desktop only (Win
 | **Types** | ProxyConfig, ProxyEndpoint | ✗ | Not exposed |
 | **Types** | WebContext, Rect (first-class), InitializationScript (main-only), MemoryUsageLevel; wry Error/Result | ✗ | Not exposed |
 
+## Dialog API (rfd 0.17)
+
+| Category | API | wry-native |
+|----------|-----|------------|
+| **Message** | message box with buttons | `wry_dialog_message(title, message, kind, buttons)` — kind: 0=Info, 1=Warning, 2=Error; buttons: 0=Ok, 1=OkCancel, 2=YesNo, 3=YesNoCancel; returns button label (caller frees with `wry_string_free`) |
+| **Ask** | Yes/No dialog | `wry_dialog_ask(title, message, kind)` — returns true for Yes, false for No/Cancel |
+| **Confirm** | Ok/Cancel dialog | `wry_dialog_confirm(title, message, kind)` — returns true for Ok, false for Cancel |
+| **Open** | file or folder picker | `wry_dialog_open(title, default_path, directory, multiple, filter_name, filter_extensions)` — returns path(s) as newline-separated string or null (caller frees with `wry_string_free`) |
+| **Save** | save file dialog | `wry_dialog_save(title, default_path, filter_name, filter_extensions)` — returns path or null (caller frees with `wry_string_free`) |
+
 ## App lifecycle
 
 | Category | API | wry-native |
@@ -120,13 +131,4 @@ This document describes what the **wry-native** C API exposes. Desktop only (Win
 | **Menu** | `PredefinedMenuItem` (Copy, Paste, etc.) | ✗ | Only separator exposed |
 | **Menu** | `IconMenuItem` | ✗ | Not exposed |
 
-**Counts (desktop, approximate)**
 
-| Layer | wry | wry-native |
-|-------|-----|------------|
-| WebViewBuilder methods | ~35 | ~28 |
-| WebView methods | ~25 | ~20 |
-| Platform extension traits (Windows) | ~9 | 5 |
-| Platform extension traits (macOS/Linux) | Many | 0 |
-| tray-icon builder/methods | ~12 | ~12 |
-| tray-icon menu items | ~6 | 4 |

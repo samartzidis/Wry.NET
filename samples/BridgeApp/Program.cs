@@ -20,6 +20,7 @@ namespace SampleApp
 
             // Set up the bridge and register services
             var bridge = new WryBridge(loggerFactory.CreateLogger<WryBridge>());
+            bridge.RegisterDialogService();
             bridge.RegisterService(new GreetService(bridge));
 
             // Create the Wry.NET application and window

@@ -8,6 +8,7 @@ Managed .NET 8 wrapper for the **wry-native** C API: cross-platform webview wind
 - **`WryWindow`** — Configure (title, size, URL, etc.) before run; after run, use properties, methods, events, and `Dispatch()` for cross-thread calls.
 - **`WryTrayIcon`** — System tray icon with tooltip, icon, and context menu. Fires `TrayEvent` and `MenuItemClicked` events.
 - **`WryTrayMenu`** — Builder for tray context menus: regular items, checkable items, separators, and submenus.
+- **`WryDialog`** — Static helper for native dialogs: `Message`, `Ask`, `Confirm`, `Open`, `Save` (message boxes and file/folder pickers).
 
 ## Getting started
 

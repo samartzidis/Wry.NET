@@ -44,6 +44,7 @@ use wry::{webview_version, WebContext, WebView, WebViewBuilder};
 #[cfg(target_os = "windows")]
 use wry::WebViewBuilderExtWindows;
 
+mod dialog;
 mod tray;
 use tray::{WryTray, TrayDispatchCallback};
 

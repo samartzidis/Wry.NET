@@ -45,8 +45,8 @@ static class ModelCollector
             return;
         }
 
-        // Only collect types from the same assembly (user types)
-        if (type.Assembly.FullName != sourceAssembly.FullName) return;
+        // Only collect types from user assemblies (app + project refs like Wry.NET), not framework
+        if (IsFrameworkAssembly(type.Assembly)) return;
 
         if (models.ContainsKey(type.FullName)) return;
 
@@ -57,7 +57,7 @@ static class ModelCollector
             baseType.FullName != null &&
             !baseType.FullName.StartsWith("System.") &&
             !baseType.IsPrimitive &&
-            baseType.Assembly.FullName == sourceAssembly.FullName)
+            !IsFrameworkAssembly(baseType.Assembly))
         {
             baseTypeName = baseType.Name;
             // Ensure the base type is also collected as a model
@@ -85,6 +85,15 @@ static class ModelCollector
         {
             CollectModels(prop.Type, models, sourceAssembly);
         }
+    }
+
+    private static bool IsFrameworkAssembly(Assembly assembly)
+    {
+        var name = assembly.GetName().Name;
+        if (string.IsNullOrEmpty(name)) return true;
+        return name.StartsWith("System.", StringComparison.OrdinalIgnoreCase) ||
+               name.StartsWith("Microsoft.", StringComparison.OrdinalIgnoreCase) ||
+               name.Equals("netstandard", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>

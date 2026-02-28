@@ -10,7 +10,7 @@
 
     <!-- NuGet package metadata -->
     <PackageId>Wry.NET</PackageId>
-    <Version>1.1.0</Version>
+    <Version>1.2.0</Version>
     <Description>Cross-platform native webview library built on wry + tao, with a managed .NET P/Invoke wrapper.</Description>
     <Authors>George Samartzidis</Authors>
     <PackageLicenseExpression>MIT</PackageLicenseExpression>

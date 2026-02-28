@@ -1,7 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { GreetService } from "./bindings";
+import { GreetService, DialogService, onProgress, WryDialogKind, WryDialogButtons } from "./bindings";
 import type { Person, Employee, ProgressEvent } from "./bindings";
-import { onProgress } from "./bindings";
 import {
   callWithOptions,
   BridgeTimeoutError,
@@ -25,6 +24,7 @@ function App() {
   const [progressMsg, setProgressMsg] = useState<string>("");
   const [progressResult, setProgressResult] = useState<string>("");
   const [error, setError] = useState<string>("");
+  const [dialogResult, setDialogResult] = useState<string>("");
 
   // Ref to hold the cancellable promise for the cancellation test
   const cancelRef = useRef<CancellablePromise<string> | null>(null);
@@ -194,6 +194,97 @@ function App() {
     }
   }, []);
 
+  // --- Native dialog demos ---
+  const handleMessage = useCallback(async () => {
+    try {
+      setError("");
+      setDialogResult("");
+      const button = await DialogService.Message(
+        "This is a message dialog.",
+        "Demo",
+        WryDialogKind.Info,
+        WryDialogButtons.OkCancel
+      );
+      setDialogResult(`Message: you clicked "${button ?? "?"}"`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  const handleAsk = useCallback(async () => {
+    try {
+      setError("");
+      setDialogResult("");
+      const yes = await DialogService.Ask("Do you want to continue?", "Yes/No", WryDialogKind.Info);
+      setDialogResult(`Ask: you chose ${yes ? "Yes" : "No"}`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  const handleConfirm = useCallback(async () => {
+    try {
+      setError("");
+      setDialogResult("");
+      const ok = await DialogService.Confirm("Save changes before closing?", "Confirm", WryDialogKind.Warning);
+      setDialogResult(`Confirm: you chose ${ok ? "Ok" : "Cancel"}`);
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  const handleOpenFile = useCallback(async () => {
+    try {
+      setError("");
+      setDialogResult("");
+      const paths = await DialogService.Open(
+        false,
+        true,
+        "Select file(s)",
+        "",
+        "Images",
+        "png,jpg,gif,webp"
+      );
+      if (paths && paths.length > 0) {
+        setDialogResult(`Open: ${paths.length} file(s) — ${paths.slice(0, 3).join(", ")}${paths.length > 3 ? "…" : ""}`);
+      } else {
+        setDialogResult("Open: cancelled");
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  const handleOpenFolder = useCallback(async () => {
+    try {
+      setError("");
+      setDialogResult("");
+      const paths = await DialogService.Open(true, false, "Select folder", "", "", "");
+      if (paths && paths.length > 0) {
+        setDialogResult(`Open folder: ${paths[0]}`);
+      } else {
+        setDialogResult("Open folder: cancelled");
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
+  const handleSave = useCallback(async () => {
+    try {
+      setError("");
+      setDialogResult("");
+      const path = await DialogService.Save("Save file", "", "Text", "txt");
+      if (path) {
+        setDialogResult(`Save: ${path}`);
+      } else {
+        setDialogResult("Save: cancelled");
+      }
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }, []);
+
   return (
     <div className="container">
       <img src="app.png" alt="Wry.NET" className="app-logo" />
@@ -248,6 +339,36 @@ function App() {
           Events (progress)
         </button>
       </div>
+
+      <h2 className="section-title">Native dialogs (Dialog service)</h2>
+      <p className="description" style={{ marginTop: 0 }}>
+        Message, Ask, Confirm, Open file/folder, Save.
+      </p>
+      <div className="actions">
+        <button className="primary-btn" onClick={handleMessage}>
+          Message (Ok/Cancel)
+        </button>
+        <button className="primary-btn" onClick={handleAsk}>
+          Ask (Yes/No)
+        </button>
+        <button className="primary-btn" onClick={handleConfirm}>
+          Confirm (Ok/Cancel)
+        </button>
+        <button className="primary-btn" onClick={handleOpenFile}>
+          Open file(s)
+        </button>
+        <button className="primary-btn" onClick={handleOpenFolder}>
+          Open folder
+        </button>
+        <button className="primary-btn" onClick={handleSave}>
+          Save file
+        </button>
+      </div>
+      {dialogResult && (
+        <div className="result-item" style={{ marginTop: 8 }}>
+          <strong>Dialog:</strong> {dialogResult}
+        </div>
+      )}
 
       <div className="results">
         {greeting && (

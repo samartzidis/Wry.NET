@@ -23,6 +23,7 @@ For full documentation, source code, and samples, see the [GitHub repository](ht
 | JSON Attribute Support | `[JsonPropertyName("x")]` overrides the generated property name. `[JsonIgnore]` excludes properties from generated interfaces. |
 | Method Exclusion | `[BridgeIgnore]` hides individual methods from both the runtime dispatcher and the generated TypeScript. |
 | Custom Service Names | `[BridgeService(Name = "CustomName")]` overrides the default class-name-based service identifier. |
+| Built-in Dialog Service | `bridge.RegisterDialogService()` registers the Dialog service (message, ask, confirm, open, save). Callable from JS as `Dialog.Message`, `Dialog.Ask`, etc. |
 | Stale File Cleanup | The generator tracks which files it produces and automatically deletes stale bindings that no longer correspond to a service, model, or event. |
 | Index/Barrel Exports | An `index.ts` barrel file is generated, re-exporting all services, models, and event helpers for convenient single-point imports. |
 | Zero-Config Build | MSBuild `.targets` auto-imported via NuGet — `dotnet build` runs the generator and copies the TypeScript runtime with no manual setup. |

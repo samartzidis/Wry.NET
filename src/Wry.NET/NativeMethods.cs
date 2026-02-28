@@ -460,6 +460,37 @@ internal static partial class NativeMethods
     internal static partial void wry_tray_remove(nint app, nuint trayId);
 
     // -----------------------------------------------------------------------
+    // Dialog (message, ask, confirm, open, save)
+    // -----------------------------------------------------------------------
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial nint wry_dialog_message(string? title, string? message, int kind, int buttons);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    internal static partial bool wry_dialog_ask(string? title, string? message, int kind);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    internal static partial bool wry_dialog_confirm(string? title, string? message, int kind);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial nint wry_dialog_open(
+        string? title,
+        string? defaultPath,
+        [MarshalAs(UnmanagedType.U1)] bool directory,
+        [MarshalAs(UnmanagedType.U1)] bool multiple,
+        string? filterName,
+        string? filterExtensions);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial nint wry_dialog_save(
+        string? title,
+        string? defaultPath,
+        string? filterName,
+        string? filterExtensions);
+
+    // -----------------------------------------------------------------------
     // String utility
     // -----------------------------------------------------------------------
 
