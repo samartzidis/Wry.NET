@@ -6,7 +6,7 @@ import {
   BridgeTimeoutError,
   BridgeCancelledError,
   CancellablePromise,
-} from "./bridge/runtime";
+} from "./bindings/runtime";
 import "./App.css";
 
 function App() {

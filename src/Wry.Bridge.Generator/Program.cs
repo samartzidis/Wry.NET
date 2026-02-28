@@ -138,6 +138,10 @@ class Program
             generatedFiles.Add(Path.GetFullPath(indexPath));
             Console.WriteLine($"[BindingGenerator] Generated {indexPath}");
 
+            // runtime.ts is copied by the build targets, not generated - exclude from stale cleanup
+            var runtimePath = Path.GetFullPath(Path.Combine(outputDir, "runtime.ts"));
+            generatedFiles.Add(runtimePath);
+
             // Clean up stale .ts files from previous generations
             StringHelpers.CleanupStaleFiles(outputDir, generatedFiles);
 

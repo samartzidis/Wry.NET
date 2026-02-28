@@ -10,7 +10,7 @@ static class CodeEmitter
     {
         var sb = new StringBuilder();
         sb.AppendLine(GeneratedHeader);
-        sb.AppendLine("import { call } from \"../bridge/runtime\";");
+        sb.AppendLine("import { call } from \"./runtime\";");
 
         // Check if any method references a model type
         var usesModels = service.Methods
@@ -118,7 +118,7 @@ static class CodeEmitter
     {
         var sb = new StringBuilder();
         sb.AppendLine(GeneratedHeader);
-        sb.AppendLine("import { on, once, off, type EventCallback } from \"../bridge/runtime\";");
+        sb.AppendLine("import { on, once, off, type EventCallback } from \"./runtime\";");
 
         // Import referenced model types
         var modelNames = new HashSet<string>();

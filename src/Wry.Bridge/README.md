@@ -42,7 +42,7 @@ Standard `System.Text.Json` attributes (`[JsonPropertyName]`, `[JsonIgnore]`) ar
 ## Cancellation
 
 ```typescript
-import { cancellableCall } from "./bridge/runtime";
+import { cancellableCall } from "./bindings/runtime";
 
 const p = cancellableCall<string>("GreetService.SlowMethod", 30);
 // Cancel after 2 seconds:

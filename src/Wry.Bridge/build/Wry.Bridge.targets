@@ -12,8 +12,7 @@
     5. Optionally embeds frontend assets as resources for single-file publishing.
 
     Configurable properties (set in consumer's .csproj before this import):
-      $(WryBridgeRuntimeDir)      - Where to place runtime.ts       (default: frontend\src\bridge)
-      $(WryBridgeOutputDir)       - Where to place generated .ts     (default: frontend\src\bindings)
+      $(WryBridgeOutputDir)       - Where to place runtime.ts and generated .ts (default: frontend\src\bindings)
       $(WryBridgeSkipTypescriptRuntimeCopy) - Set to 'true' to skip runtime.ts copy
       $(WryBridgeSkipBindingGeneration) - Set to 'true' to skip binding generation
       $(WryBridgeSkipFrontendBuild) - Set to 'true' to skip npm install/build
@@ -24,7 +23,6 @@
   -->
 
   <PropertyGroup>
-    <WryBridgeRuntimeDir Condition="'$(WryBridgeRuntimeDir)' == ''">frontend\src\bridge</WryBridgeRuntimeDir>
     <WryBridgeOutputDir Condition="'$(WryBridgeOutputDir)' == ''">frontend\src\bindings</WryBridgeOutputDir>
     <WryBridgeFrontendDir Condition="'$(WryBridgeFrontendDir)' == ''">wwwroot</WryBridgeFrontendDir>
     <WryBridgePackageManager Condition="'$(WryBridgePackageManager)' == ''">npm</WryBridgePackageManager>
@@ -32,15 +30,15 @@
     <_WryBridgePkgDir>$(MSBuildThisFileDirectory)..\</_WryBridgePkgDir>
   </PropertyGroup>
 
-  <!-- Copy runtime.ts to the consumer's frontend project (only if it doesn't exist yet) -->
+  <!-- Copy runtime.ts to the bindings output dir (only if it doesn't exist yet) -->
   <Target Name="WryBridgeCopyRuntime"
           BeforeTargets="BeforeBuild"
-          Condition="'$(WryBridgeSkipTypescriptRuntimeCopy)' != 'true' AND !Exists('$(WryBridgeRuntimeDir)\runtime.ts')">
-    <MakeDir Directories="$(WryBridgeRuntimeDir)" />
+          Condition="'$(WryBridgeSkipTypescriptRuntimeCopy)' != 'true' AND !Exists('$(WryBridgeOutputDir)\runtime.ts')">
+    <MakeDir Directories="$(WryBridgeOutputDir)" />
     <Copy SourceFiles="$(_WryBridgePkgDir)content\bridge\runtime.ts"
-          DestinationFolder="$(WryBridgeRuntimeDir)"
+          DestinationFolder="$(WryBridgeOutputDir)"
           SkipUnchangedFiles="true" />
-    <Message Importance="high" Text="[Wry.Bridge] Copied bridge runtime to $(WryBridgeRuntimeDir)\runtime.ts" />
+    <Message Importance="high" Text="[Wry.Bridge] Copied bridge runtime to $(WryBridgeOutputDir)\runtime.ts" />
   </Target>
 
   <!-- Run the binding generator after build -->
