@@ -233,6 +233,7 @@ public sealed class WryApp : IDisposable
             if (window is not null)
             {
                 window.SetNativePtr(windowPtr);
+                window.OnWindowCreated();
                 app.WindowCreated?.Invoke(app, new WindowCreatedEventArgs(window));
             }
         }
