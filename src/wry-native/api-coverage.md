@@ -22,6 +22,9 @@ This document describes what the **wry-native** C API exposes. Desktop only (Win
 | **Builder** | `with_devtools` | ✓ | `wry_window_set_devtools` |
 | **Builder** | `with_visible` | ✓ | `wry_window_set_visible` |
 | **Builder** | (title, size, min/max, position, resizable, fullscreen, maximized, minimized, topmost, decorations, zoom, center) | ✓ | `wry_window_set_*` (pre-run), `wry_window_set_*_direct` / getters (post-run) |
+| **Builder** | skip_taskbar, content_protected, shadow, always_on_bottom, maximizable, minimizable, closable, focusable, window_classname | ✓ | `wry_window_set_skip_taskbar`, `wry_window_set_content_protected`, `wry_window_set_shadow` (Win), `wry_window_set_always_on_bottom`, `wry_window_set_maximizable`, `wry_window_set_minimizable`, `wry_window_set_closable`, `wry_window_set_focusable`, `wry_window_set_window_classname` (Win); each has `_direct` where runtime change is supported |
+| **Builder** | owner window / parent window (owned or child) | ✓ | `wry_window_set_owner_window`, `wry_window_set_parent_window`; builder-only; owner/parent must have lower id (created first). Only one per window. Win: with_owner_window/with_parent_window; macOS: with_parent_window(ns_window); Linux: with_transient_for(gtk_window). |
+| **Runtime** | prevent_overflow (keep window on monitor) | ✓ | `wry_window_set_prevent_overflow`, `wry_window_set_prevent_overflow_margin`; clamp on Moved/Resized; optional margin (left, top, right, bottom). `_direct` for post-run. Cross-platform. |
 | **Builder** | `with_back_forward_navigation_gestures` | ✓ | `wry_window_set_back_forward_gestures` |
 | **Builder** | `with_background_color` | ✓ | `wry_window_set_background_color` (pre-run) |
 | **Builder** | `with_autoplay` | ✓ | `wry_window_set_autoplay` |

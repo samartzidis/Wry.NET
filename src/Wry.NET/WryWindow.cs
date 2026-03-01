@@ -35,6 +35,9 @@ public sealed class WryWindow
     /// <summary>Whether the native window has been materialized (post-run).</summary>
     public bool IsLive => _nativePtr != 0;
 
+    /// <summary>Window id (assigned at creation). Use for OwnerWindowId / ParentWindowId on another window.</summary>
+    public nuint Id => _windowId;
+
     // =======================================================================
     // Events
     // =======================================================================
@@ -260,6 +263,141 @@ public sealed class WryWindow
             else
                 NativeMethods.wry_window_set_decorations(_app.Handle, _windowId, value);
         }
+    }
+
+    /// <summary>Hide or show the window in the taskbar. Windows, Linux.</summary>
+    public bool SkipTaskbar
+    {
+        set
+        {
+            if (IsLive)
+                NativeMethods.wry_window_set_skip_taskbar_direct(_nativePtr, value);
+            else
+                NativeMethods.wry_window_set_skip_taskbar(_app.Handle, _windowId, value);
+        }
+    }
+
+    /// <summary>Prevent window content from being captured (e.g. screen capture). Windows, macOS.</summary>
+    public bool ContentProtected
+    {
+        set
+        {
+            if (IsLive)
+                NativeMethods.wry_window_set_content_protected_direct(_nativePtr, value);
+            else
+                NativeMethods.wry_window_set_content_protected(_app.Handle, _windowId, value);
+        }
+    }
+
+    /// <summary>Show or hide drop shadow for undecorated windows. Windows.</summary>
+    public bool Shadow
+    {
+        set
+        {
+            if (IsLive)
+                NativeMethods.wry_window_set_shadow_direct(_nativePtr, value);
+            else
+                NativeMethods.wry_window_set_shadow(_app.Handle, _windowId, value);
+        }
+    }
+
+    /// <summary>Keep the window below other windows.</summary>
+    public bool AlwaysOnBottom
+    {
+        set
+        {
+            if (IsLive)
+                NativeMethods.wry_window_set_always_on_bottom_direct(_nativePtr, value);
+            else
+                NativeMethods.wry_window_set_always_on_bottom(_app.Handle, _windowId, value);
+        }
+    }
+
+    /// <summary>Allow or prevent maximizing the window.</summary>
+    public bool Maximizable
+    {
+        set
+        {
+            if (IsLive)
+                NativeMethods.wry_window_set_maximizable_direct(_nativePtr, value);
+            else
+                NativeMethods.wry_window_set_maximizable(_app.Handle, _windowId, value);
+        }
+    }
+
+    /// <summary>Allow or prevent minimizing the window.</summary>
+    public bool Minimizable
+    {
+        set
+        {
+            if (IsLive)
+                NativeMethods.wry_window_set_minimizable_direct(_nativePtr, value);
+            else
+                NativeMethods.wry_window_set_minimizable(_app.Handle, _windowId, value);
+        }
+    }
+
+    /// <summary>Allow or prevent closing the window (e.g. close button).</summary>
+    public bool Closable
+    {
+        set
+        {
+            if (IsLive)
+                NativeMethods.wry_window_set_closable_direct(_nativePtr, value);
+            else
+                NativeMethods.wry_window_set_closable(_app.Handle, _windowId, value);
+        }
+    }
+
+    /// <summary>Allow or prevent the window from receiving keyboard focus.</summary>
+    public bool Focusable
+    {
+        set
+        {
+            if (IsLive)
+                NativeMethods.wry_window_set_focusable_direct(_nativePtr, value);
+            else
+                NativeMethods.wry_window_set_focusable(_app.Handle, _windowId, value);
+        }
+    }
+
+    /// <summary>Set custom window class name. Windows only. Builder-only (before Run).</summary>
+    public string? WindowClassname
+    {
+        set => NativeMethods.wry_window_set_window_classname(_app.Handle, _windowId, value ?? "");
+    }
+
+    /// <summary>Set the owner window (owned window, e.g. dialog). Use 0 to clear. Builder-only. Owner must have a lower window id (be created first). Windows: owned window; macOS/Linux: parent/transient.</summary>
+    public nuint OwnerWindowId
+    {
+        set => NativeMethods.wry_window_set_owner_window(_app.Handle, _windowId, value);
+    }
+
+    /// <summary>Set the parent window (child/transient). Use 0 to clear. Builder-only. Parent must have a lower window id (be created first).</summary>
+    public nuint ParentWindowId
+    {
+        set => NativeMethods.wry_window_set_parent_window(_app.Handle, _windowId, value);
+    }
+
+    /// <summary>Keep window within current monitor when moved or resized. Can be set before or after Run (use dispatch for post-run).</summary>
+    public bool PreventOverflow
+    {
+        set
+        {
+            if (IsLive)
+                NativeMethods.wry_window_set_prevent_overflow_direct(_nativePtr, value);
+            else
+                NativeMethods.wry_window_set_prevent_overflow(_app.Handle, _windowId, value);
+        }
+    }
+
+    /// <summary>Set prevent_overflow margin in physical pixels (left, top, right, bottom). Use (0,0,0,0) for no margin.</summary>
+    public void SetPreventOverflowMargin(int left, int top, int right, int bottom)
+    {
+        if (IsLive)
+            NativeMethods.wry_window_set_prevent_overflow_margin_direct(_nativePtr, left, top, right, bottom);
+        else
+            NativeMethods.wry_window_set_prevent_overflow_margin(_app.Handle, _windowId, left, top, right, bottom);
     }
 
     /// <summary>Set the webview zoom level (1.0 = 100%).</summary>

@@ -145,6 +145,51 @@ internal static partial class NativeMethods
     [LibraryImport(LibName)]
     internal static partial void wry_window_set_decorations(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool decorations);
 
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_skip_taskbar(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool skip);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_content_protected(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool contentProtected);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_shadow(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool shadow);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_always_on_bottom(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool alwaysOnBottom);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_maximizable(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool maximizable);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_minimizable(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool minimizable);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_closable(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool closable);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_focusable(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool focusable);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void wry_window_set_window_classname(nint app, nuint windowId, string classname);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_owner_window(nint app, nuint windowId, nuint ownerWindowId);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_parent_window(nint app, nuint windowId, nuint parentWindowId);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_prevent_overflow(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool enabled);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_prevent_overflow_margin(nint app, nuint windowId, int left, int top, int right, int bottom);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_prevent_overflow_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool enabled);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_prevent_overflow_margin_direct(nint win, int left, int top, int right, int bottom);
+
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial void wry_window_set_user_agent(nint app, nuint windowId, string userAgent);
 
@@ -285,6 +330,30 @@ internal static partial class NativeMethods
 
     [LibraryImport(LibName)]
     internal static partial void wry_window_set_decorations_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool decorations);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_skip_taskbar_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool skip);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_content_protected_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool contentProtected);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_shadow_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool shadow);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_always_on_bottom_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool alwaysOnBottom);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_maximizable_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool maximizable);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_minimizable_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool minimizable);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_closable_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool closable);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_focusable_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool focusable);
 
     [LibraryImport(LibName)]
     internal static partial void wry_window_set_zoom_direct(nint win, double zoom);

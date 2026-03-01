@@ -251,3 +251,44 @@ pub extern "C" fn wry_dialog_save(
         None => std::ptr::null_mut(),
     }
 }
+
+// ---------------------------------------------------------------------------
+// Unit tests (pure mappings)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::{buttons_from_int, level_from_int, result_to_string};
+    use rfd::{MessageButtons, MessageDialogResult, MessageLevel};
+
+    #[test]
+    fn level_from_int_maps_correctly() {
+        assert!(matches!(level_from_int(0), MessageLevel::Info));
+        assert!(matches!(level_from_int(1), MessageLevel::Warning));
+        assert!(matches!(level_from_int(2), MessageLevel::Error));
+        assert!(matches!(level_from_int(-1), MessageLevel::Info));
+        assert!(matches!(level_from_int(3), MessageLevel::Info));
+    }
+
+    #[test]
+    fn buttons_from_int_maps_correctly() {
+        assert!(matches!(buttons_from_int(0), MessageButtons::Ok));
+        assert!(matches!(buttons_from_int(1), MessageButtons::OkCancel));
+        assert!(matches!(buttons_from_int(2), MessageButtons::YesNo));
+        assert!(matches!(buttons_from_int(3), MessageButtons::YesNoCancel));
+        assert!(matches!(buttons_from_int(-1), MessageButtons::Ok));
+        assert!(matches!(buttons_from_int(4), MessageButtons::Ok));
+    }
+
+    #[test]
+    fn result_to_string_maps_correctly() {
+        assert_eq!(result_to_string(MessageDialogResult::Yes), "Yes");
+        assert_eq!(result_to_string(MessageDialogResult::No), "No");
+        assert_eq!(result_to_string(MessageDialogResult::Ok), "Ok");
+        assert_eq!(result_to_string(MessageDialogResult::Cancel), "Cancel");
+        assert_eq!(
+            result_to_string(MessageDialogResult::Custom("Custom".into())),
+            "Custom"
+        );
+    }
+}

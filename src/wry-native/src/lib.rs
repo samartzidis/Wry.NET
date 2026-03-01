@@ -33,7 +33,7 @@ macro_rules! log_err {
     };
 }
 
-use tao::dpi::{LogicalPosition, LogicalSize};
+use tao::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use tao::event::{Event, StartCause, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget};
 use tao::platform::run_return::EventLoopExtRunReturn;
@@ -41,6 +41,8 @@ use tao::window::{Fullscreen, Icon, Window, WindowBuilder as TaoWindowBuilder, W
 
 use wry::{webview_version, WebContext, WebView, WebViewBuilder};
 
+#[cfg(target_os = "windows")]
+use tao::platform::windows::WindowBuilderExtWindows;
 #[cfg(target_os = "windows")]
 use wry::WebViewBuilderExtWindows;
 
@@ -217,6 +219,23 @@ pub struct WryWindow {
     pending_default_context_menus: bool,
     #[cfg(target_os = "windows")]
     pending_scroll_bar_style: i32, // 0=Default, 1=FluentOverlay
+    // Window options (tao) - skip_taskbar, shadow, etc.
+    pending_skip_taskbar: bool,
+    pending_content_protected: bool,
+    pending_shadow: bool,
+    pending_always_on_bottom: bool,
+    pending_maximizable: bool,
+    pending_minimizable: bool,
+    pending_closable: bool,
+    pending_focusable: bool,
+    #[cfg(target_os = "windows")]
+    pending_window_classname: Option<String>,
+    /// Owner or parent window id (our usize id). Owner = owned/dialog; parent = child. Only one applied; owner takes precedence.
+    pending_owner_window_id: Option<usize>,
+    pending_parent_window_id: Option<usize>,
+    /// Keep window within current monitor bounds when moved/resized. Margin in physical pixels (left, top, right, bottom).
+    prevent_overflow: bool,
+    prevent_overflow_margin: (i32, i32, i32, i32), // left, top, right, bottom
     pending_init_scripts: Vec<String>,
     pending_protocols: Vec<PendingProtocol>,
     pending_data_directory: Option<String>,
@@ -281,6 +300,20 @@ impl WryWindow {
             pending_default_context_menus: true,
             #[cfg(target_os = "windows")]
             pending_scroll_bar_style: 0,
+            pending_skip_taskbar: false,
+            pending_content_protected: false,
+            pending_shadow: true,
+            pending_always_on_bottom: false,
+            pending_maximizable: true,
+            pending_minimizable: true,
+            pending_closable: true,
+            pending_focusable: true,
+            #[cfg(target_os = "windows")]
+            pending_window_classname: None,
+            pending_owner_window_id: None,
+            pending_parent_window_id: None,
+            prevent_overflow: false,
+            prevent_overflow_margin: (0, 0, 0, 0),
             pending_init_scripts: Vec::new(),
             pending_protocols: Vec::new(),
             pending_data_directory: None,
@@ -301,9 +334,12 @@ impl WryWindow {
     }
 
     /// Materialize the tao Window + wry WebView from pending config.
+    /// owner_window / parent_window: resolved parent tao Window; owner takes precedence if both set.
     fn create(
         &mut self,
         event_loop: &EventLoopWindowTarget<UserEvent>,
+        owner_window: Option<&Window>,
+        parent_window: Option<&Window>,
     ) {
         let (w, h) = self.pending_size;
         let mut wb = TaoWindowBuilder::new()
@@ -313,7 +349,33 @@ impl WryWindow {
             .with_always_on_top(self.pending_topmost)
             .with_visible(self.pending_visible)
             .with_maximized(self.pending_maximized)
-            .with_decorations(self.pending_decorations);
+            .with_decorations(self.pending_decorations)
+            .with_content_protection(self.pending_content_protected)
+            .with_always_on_bottom(self.pending_always_on_bottom)
+            .with_maximizable(self.pending_maximizable)
+            .with_minimizable(self.pending_minimizable)
+            .with_closable(self.pending_closable)
+            .with_focusable(self.pending_focusable);
+
+        #[cfg(target_os = "windows")]
+        {
+            wb = wb.with_skip_taskbar(self.pending_skip_taskbar);
+            wb = wb.with_undecorated_shadow(self.pending_shadow);
+            if let Some(ref class_name) = self.pending_window_classname {
+                if !class_name.is_empty() {
+                    wb = wb.with_window_classname(class_name);
+                }
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            // skip_taskbar also on Linux (WindowBuilderExtUnix)
+            #[cfg(target_os = "linux")]
+            {
+                use tao::platform::unix::WindowBuilderExtUnix;
+                wb = wb.with_skip_taskbar(self.pending_skip_taskbar);
+            }
+        }
 
         if let Some((min_w, min_h)) = self.pending_min_size {
             wb = wb.with_min_inner_size(LogicalSize::new(min_w, min_h));
@@ -329,6 +391,32 @@ impl WryWindow {
         }
         if let Some(icon) = self.pending_icon.take() {
             wb = wb.with_window_icon(Some(icon));
+        }
+
+        // Owner/parent: Windows = owner_window vs parent_window (HWND); macOS = parent (ns_window); Linux = transient_for (gtk).
+        #[cfg(target_os = "windows")]
+        {
+            if let Some(w) = owner_window {
+                use tao::platform::windows::WindowExtWindows;
+                wb = wb.with_owner_window(w.hwnd());
+            } else if let Some(w) = parent_window {
+                use tao::platform::windows::WindowExtWindows;
+                wb = wb.with_parent_window(w.hwnd());
+            }
+        }
+        #[cfg(target_os = "macos")]
+        {
+            if let Some(w) = owner_window.or(parent_window) {
+                use tao::platform::macos::{WindowBuilderExtMacOS, WindowExtMacOS};
+                wb = wb.with_parent_window(w.ns_window());
+            }
+        }
+        #[cfg(target_os = "linux")]
+        {
+            if let Some(w) = owner_window.or(parent_window) {
+                use tao::platform::unix::{WindowBuilderExtUnix, WindowExtUnix};
+                wb = wb.with_transient_for(w.gtk_window());
+            }
         }
 
         let window = wb.build(event_loop).expect("failed to create window");
@@ -582,6 +670,55 @@ unsafe impl Send for WryApp {}
 unsafe impl Sync for WryApp {}
 
 // ---------------------------------------------------------------------------
+// prevent_overflow: clamp window to current monitor bounds
+// ---------------------------------------------------------------------------
+
+/// Pure clamp: returns (new_x, new_y) so a window of size (win_w, win_h) with top-left (win_x, win_y)
+/// stays within the rectangle [left, right] x [top, bottom]. Bounds are inclusive for the top-left;
+/// the window's right edge is at win_x + win_w, bottom at win_y + win_h.
+fn clamp_window_position_to_bounds(
+    left: i32,
+    top: i32,
+    right: i32,
+    bottom: i32,
+    win_x: i32,
+    win_y: i32,
+    win_w: i32,
+    win_h: i32,
+) -> (i32, i32) {
+    let max_x = (right - win_w).max(left);
+    let max_y = (bottom - win_h).max(top);
+    let new_x = win_x.clamp(left, max_x);
+    let new_y = win_y.clamp(top, max_y);
+    (new_x, new_y)
+}
+
+fn apply_prevent_overflow(window: &Window, margin: (i32, i32, i32, i32)) {
+    let Some(monitor) = window.current_monitor() else { return };
+    let mon_pos = monitor.position();
+    let mon_size = monitor.size();
+    let (ml, mt, mr, mb) = margin;
+    let left = mon_pos.x + ml;
+    let top = mon_pos.y + mt;
+    let right = mon_pos.x + mon_size.width as i32 - mr;
+    let bottom = mon_pos.y + mon_size.height as i32 - mb;
+
+    let Ok(pos) = window.outer_position() else { return };
+    let size = window.outer_size();
+    let w = size.width as i32;
+    let h = size.height as i32;
+
+    let (new_x, new_y) = clamp_window_position_to_bounds(
+        left, top, right, bottom,
+        pos.x, pos.y, w, h,
+    );
+
+    if new_x != pos.x || new_y != pos.y {
+        window.set_outer_position(PhysicalPosition::new(new_x, new_y));
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helper: read a C string into a Rust String, returning empty on null.
 // ---------------------------------------------------------------------------
 
@@ -658,9 +795,18 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
 
         match event {
             Event::NewEvents(StartCause::Init) => {
-                // Materialize all pending windows.
+                // Materialize all pending windows. Sort by id so owner/parent windows are created first.
+                pending_windows.sort_by_key(|w| w.id);
                 for mut win in pending_windows.drain(..) {
-                    win.create(event_loop_target);
+                    let owner_window = win.pending_owner_window_id.and_then(|oid| {
+                        id_to_window_id.get(&oid).and_then(|tid| live_windows.get(tid))
+                            .and_then(|w| w.window.as_ref())
+                    });
+                    let parent_window = win.pending_parent_window_id.and_then(|pid| {
+                        id_to_window_id.get(&pid).and_then(|tid| live_windows.get(tid))
+                            .and_then(|w| w.window.as_ref())
+                    });
+                    win.create(event_loop_target, owner_window, parent_window);
                     if let Some(wid) = win.window_id {
                         let our_id = win.id;
                         id_to_window_id.insert(our_id, wid);
@@ -707,6 +853,11 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                             }
                         }
                         WindowEvent::Resized(size) => {
+                            if win.prevent_overflow {
+                                if let Some(ref w) = win.window {
+                                    apply_prevent_overflow(w, win.prevent_overflow_margin);
+                                }
+                            }
                             if let Some((cb, ctx)) = win.resize_handler {
                                 cb(
                                     size.width as c_int,
@@ -716,6 +867,11 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                             }
                         }
                         WindowEvent::Moved(pos) => {
+                            if win.prevent_overflow {
+                                if let Some(ref w) = win.window {
+                                    apply_prevent_overflow(w, win.prevent_overflow_margin);
+                                }
+                            }
                             if let Some((cb, ctx)) = win.move_handler {
                                 cb(pos.x as c_int, pos.y as c_int, ctx as *mut c_void);
                             }
@@ -1332,6 +1488,239 @@ pub extern "C" fn wry_window_set_decorations(
         }
         win.pending_decorations = decorations;
     }
+}
+
+/// Set whether the window is hidden from the taskbar. Platform: Windows, Linux.
+#[no_mangle]
+pub extern "C" fn wry_window_set_skip_taskbar(
+    app: *mut WryApp,
+    window_id: usize,
+    skip: bool,
+) {
+    if let Some(win) = get_pending_window(app, window_id) {
+        #[cfg(any(target_os = "windows", target_os = "linux"))]
+        if let Some(ref w) = win.window {
+            #[cfg(target_os = "windows")]
+            {
+                use tao::platform::windows::WindowExtWindows;
+                let _ = w.set_skip_taskbar(skip);
+            }
+            #[cfg(target_os = "linux")]
+            {
+                use tao::platform::unix::WindowExtUnix;
+                let _ = w.set_skip_taskbar(skip);
+            }
+        }
+        win.pending_skip_taskbar = skip;
+    }
+}
+
+/// Set whether window content is protected from capture (e.g. screen capture). Platform: Windows, macOS.
+#[no_mangle]
+pub extern "C" fn wry_window_set_content_protected(
+    app: *mut WryApp,
+    window_id: usize,
+    protected: bool,
+) {
+    if let Some(win) = get_pending_window(app, window_id) {
+        if let Some(ref w) = win.window {
+            w.set_content_protection(protected);
+        }
+        win.pending_content_protected = protected;
+    }
+}
+
+/// Set whether the window has a drop shadow (e.g. undecorated). Platform: Windows.
+#[no_mangle]
+pub extern "C" fn wry_window_set_shadow(
+    app: *mut WryApp,
+    window_id: usize,
+    shadow: bool,
+) {
+    if let Some(win) = get_pending_window(app, window_id) {
+        #[cfg(target_os = "windows")]
+        if let Some(ref w) = win.window {
+            use tao::platform::windows::WindowExtWindows;
+            w.set_undecorated_shadow(shadow);
+        }
+        win.pending_shadow = shadow;
+    }
+}
+
+/// Set whether the window is always below other windows.
+#[no_mangle]
+pub extern "C" fn wry_window_set_always_on_bottom(
+    app: *mut WryApp,
+    window_id: usize,
+    always_on_bottom: bool,
+) {
+    if let Some(win) = get_pending_window(app, window_id) {
+        if let Some(ref w) = win.window {
+            w.set_always_on_bottom(always_on_bottom);
+        }
+        win.pending_always_on_bottom = always_on_bottom;
+    }
+}
+
+/// Set whether the window can be maximized.
+#[no_mangle]
+pub extern "C" fn wry_window_set_maximizable(
+    app: *mut WryApp,
+    window_id: usize,
+    maximizable: bool,
+) {
+    if let Some(win) = get_pending_window(app, window_id) {
+        if let Some(ref w) = win.window {
+            w.set_maximizable(maximizable);
+        }
+        win.pending_maximizable = maximizable;
+    }
+}
+
+/// Set whether the window can be minimized.
+#[no_mangle]
+pub extern "C" fn wry_window_set_minimizable(
+    app: *mut WryApp,
+    window_id: usize,
+    minimizable: bool,
+) {
+    if let Some(win) = get_pending_window(app, window_id) {
+        if let Some(ref w) = win.window {
+            w.set_minimizable(minimizable);
+        }
+        win.pending_minimizable = minimizable;
+    }
+}
+
+/// Set whether the window can be closed (e.g. close button).
+#[no_mangle]
+pub extern "C" fn wry_window_set_closable(
+    app: *mut WryApp,
+    window_id: usize,
+    closable: bool,
+) {
+    if let Some(win) = get_pending_window(app, window_id) {
+        if let Some(ref w) = win.window {
+            w.set_closable(closable);
+        }
+        win.pending_closable = closable;
+    }
+}
+
+/// Set whether the window can receive keyboard focus.
+#[no_mangle]
+pub extern "C" fn wry_window_set_focusable(
+    app: *mut WryApp,
+    window_id: usize,
+    focusable: bool,
+) {
+    if let Some(win) = get_pending_window(app, window_id) {
+        if let Some(ref w) = win.window {
+            w.set_focusable(focusable);
+        }
+        win.pending_focusable = focusable;
+    }
+}
+
+/// Set custom window class name. Platform: Windows. Builder-only (no runtime change).
+#[no_mangle]
+pub extern "C" fn wry_window_set_window_classname(
+    app: *mut WryApp,
+    window_id: usize,
+    classname: *const c_char,
+) {
+    if let Some(win) = get_pending_window(app, window_id) {
+        #[cfg(target_os = "windows")]
+        {
+            let s = unsafe { c_str_to_string(classname) };
+            win.pending_window_classname = if s.is_empty() { None } else { Some(s) };
+        }
+    }
+}
+
+/// Set the owner window (owned window, e.g. dialog). Use 0 to clear. Builder-only. Win: owned window; macOS/Linux: parent/transient.
+/// The owner window must be created before this window (lower window id). Only one of owner or parent may be set; owner takes precedence.
+#[no_mangle]
+pub extern "C" fn wry_window_set_owner_window(
+    app: *mut WryApp,
+    window_id: usize,
+    owner_window_id: usize,
+) {
+    if let Some(win) = get_pending_window(app, window_id) {
+        win.pending_owner_window_id = if owner_window_id == 0 { None } else { Some(owner_window_id) };
+        if owner_window_id != 0 {
+            win.pending_parent_window_id = None;
+        }
+    }
+}
+
+/// Set the parent window (child window on Win/macOS; transient on Linux). Use 0 to clear. Builder-only.
+/// The parent window must be created before this window (lower window id). Only one of owner or parent may be set.
+#[no_mangle]
+pub extern "C" fn wry_window_set_parent_window(
+    app: *mut WryApp,
+    window_id: usize,
+    parent_window_id: usize,
+) {
+    if let Some(win) = get_pending_window(app, window_id) {
+        win.pending_parent_window_id = if parent_window_id == 0 { None } else { Some(parent_window_id) };
+        if parent_window_id != 0 {
+            win.pending_owner_window_id = None;
+        }
+    }
+}
+
+/// Enable or disable prevent_overflow (keep window within current monitor when moved/resized).
+#[no_mangle]
+pub extern "C" fn wry_window_set_prevent_overflow(
+    app: *mut WryApp,
+    window_id: usize,
+    enabled: bool,
+) {
+    if let Some(win) = get_pending_window(app, window_id) {
+        win.prevent_overflow = enabled;
+    }
+}
+
+/// Set prevent_overflow margin in physical pixels (left, top, right, bottom). Use 0 for all to have no margin.
+#[no_mangle]
+pub extern "C" fn wry_window_set_prevent_overflow_margin(
+    app: *mut WryApp,
+    window_id: usize,
+    left: c_int,
+    top: c_int,
+    right: c_int,
+    bottom: c_int,
+) {
+    if let Some(win) = get_pending_window(app, window_id) {
+        win.prevent_overflow_margin = (left, top, right, bottom);
+    }
+}
+
+/// Set prevent_overflow from a callback (live window). Call from dispatch.
+#[no_mangle]
+pub extern "C" fn wry_window_set_prevent_overflow_direct(win: *mut WryWindow, enabled: bool) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &mut *win };
+    win.prevent_overflow = enabled;
+}
+
+/// Set prevent_overflow margin from a callback (live window). Call from dispatch.
+#[no_mangle]
+pub extern "C" fn wry_window_set_prevent_overflow_margin_direct(
+    win: *mut WryWindow,
+    left: c_int,
+    top: c_int,
+    right: c_int,
+    bottom: c_int,
+) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &mut *win };
+    win.prevent_overflow_margin = (left, top, right, bottom);
 }
 
 /// Set a custom user agent string for the webview.
@@ -2126,6 +2515,122 @@ pub extern "C" fn wry_window_set_decorations_direct(win: *mut WryWindow, decorat
     win.pending_decorations = decorations;
 }
 
+/// Set skip taskbar. Call from a callback with the WryWindow pointer. Platform: Windows, Linux.
+#[no_mangle]
+pub extern "C" fn wry_window_set_skip_taskbar_direct(win: *mut WryWindow, skip: bool) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &mut *win };
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    if let Some(ref w) = win.window {
+        #[cfg(target_os = "windows")]
+        {
+            use tao::platform::windows::WindowExtWindows;
+            let _ = w.set_skip_taskbar(skip);
+        }
+        #[cfg(target_os = "linux")]
+        {
+            use tao::platform::unix::WindowExtUnix;
+            let _ = w.set_skip_taskbar(skip);
+        }
+    }
+    win.pending_skip_taskbar = skip;
+}
+
+/// Set content protection. Call from a callback with the WryWindow pointer.
+#[no_mangle]
+pub extern "C" fn wry_window_set_content_protected_direct(win: *mut WryWindow, protected: bool) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &mut *win };
+    if let Some(ref w) = win.window {
+        w.set_content_protection(protected);
+    }
+    win.pending_content_protected = protected;
+}
+
+/// Set undecorated shadow. Call from a callback with the WryWindow pointer. Platform: Windows.
+#[no_mangle]
+pub extern "C" fn wry_window_set_shadow_direct(win: *mut WryWindow, shadow: bool) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &mut *win };
+    #[cfg(target_os = "windows")]
+    if let Some(ref w) = win.window {
+        use tao::platform::windows::WindowExtWindows;
+        w.set_undecorated_shadow(shadow);
+    }
+    win.pending_shadow = shadow;
+}
+
+/// Set always on bottom. Call from a callback with the WryWindow pointer.
+#[no_mangle]
+pub extern "C" fn wry_window_set_always_on_bottom_direct(win: *mut WryWindow, always_on_bottom: bool) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &mut *win };
+    if let Some(ref w) = win.window {
+        w.set_always_on_bottom(always_on_bottom);
+    }
+    win.pending_always_on_bottom = always_on_bottom;
+}
+
+/// Set maximizable. Call from a callback with the WryWindow pointer.
+#[no_mangle]
+pub extern "C" fn wry_window_set_maximizable_direct(win: *mut WryWindow, maximizable: bool) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &mut *win };
+    if let Some(ref w) = win.window {
+        w.set_maximizable(maximizable);
+    }
+    win.pending_maximizable = maximizable;
+}
+
+/// Set minimizable. Call from a callback with the WryWindow pointer.
+#[no_mangle]
+pub extern "C" fn wry_window_set_minimizable_direct(win: *mut WryWindow, minimizable: bool) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &mut *win };
+    if let Some(ref w) = win.window {
+        w.set_minimizable(minimizable);
+    }
+    win.pending_minimizable = minimizable;
+}
+
+/// Set closable. Call from a callback with the WryWindow pointer.
+#[no_mangle]
+pub extern "C" fn wry_window_set_closable_direct(win: *mut WryWindow, closable: bool) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &mut *win };
+    if let Some(ref w) = win.window {
+        w.set_closable(closable);
+    }
+    win.pending_closable = closable;
+}
+
+/// Set focusable. Call from a callback with the WryWindow pointer.
+#[no_mangle]
+pub extern "C" fn wry_window_set_focusable_direct(win: *mut WryWindow, focusable: bool) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &mut *win };
+    if let Some(ref w) = win.window {
+        w.set_focusable(focusable);
+    }
+    win.pending_focusable = focusable;
+}
+
 /// Set webview zoom level. Call from a callback with the WryWindow pointer.
 /// 1.0 = 100%, 2.0 = 200%, etc.
 #[no_mangle]
@@ -2565,5 +3070,149 @@ pub extern "C" fn wry_window_dispatch(
         callback,
         ctx: ctx as usize,
     }), "dispatch");
+}
+
+// ---------------------------------------------------------------------------
+// Unit tests (pure logic)
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use std::ffi::{CStr, CString};
+
+    use super::{clamp_window_position_to_bounds, c_str_to_string, decode_icon_from_bytes};
+
+    /// Monitor 0..1920 x 0..1080; window 100x100; no overflow.
+    #[test]
+    fn prevent_overflow_already_inside() {
+        let (x, y) = clamp_window_position_to_bounds(
+            0, 0, 1920, 1080,
+            100, 200, 100, 100,
+        );
+        assert_eq!((x, y), (100, 200));
+    }
+
+    /// Window partly off right: clamp x so right edge fits.
+    #[test]
+    fn prevent_overflow_clamp_right() {
+        let (x, y) = clamp_window_position_to_bounds(
+            0, 0, 1920, 1080,
+            1900, 100, 100, 100,
+        );
+        assert_eq!((x, y), (1820, 100)); // 1820 + 100 = 1920
+    }
+
+    /// Window partly off bottom: clamp y.
+    #[test]
+    fn prevent_overflow_clamp_bottom() {
+        let (x, y) = clamp_window_position_to_bounds(
+            0, 0, 1920, 1080,
+            100, 1050, 100, 100,
+        );
+        assert_eq!((x, y), (100, 980)); // 980 + 100 = 1080
+    }
+
+    /// Window off left: clamp x to left.
+    #[test]
+    fn prevent_overflow_clamp_left() {
+        let (x, y) = clamp_window_position_to_bounds(
+            0, 0, 1920, 1080,
+            -50, 100, 100, 100,
+        );
+        assert_eq!((x, y), (0, 100));
+    }
+
+    /// Window off top: clamp y to top.
+    #[test]
+    fn prevent_overflow_clamp_top() {
+        let (x, y) = clamp_window_position_to_bounds(
+            0, 0, 1920, 1080,
+            100, -30, 100, 100,
+        );
+        assert_eq!((x, y), (100, 0));
+    }
+
+    /// Window larger than monitor: clamp to top-left so as much as possible is visible.
+    #[test]
+    fn prevent_overflow_window_larger_than_monitor() {
+        let (x, y) = clamp_window_position_to_bounds(
+            0, 0, 1920, 1080,
+            -100, -50, 2500, 1200,
+        );
+        // max_x = (1920 - 2500).max(0) = 0, max_y = (1080 - 1200).max(0) = 0
+        assert_eq!((x, y), (0, 0));
+    }
+
+    /// With margin: usable area is (10, 20)..(1910, 1060); window at (1900, 1040) 100x100 gets clamped.
+    #[test]
+    fn prevent_overflow_with_margin() {
+        let (x, y) = clamp_window_position_to_bounds(
+            10, 20, 1910, 1060,
+            1900, 1040, 100, 100,
+        );
+        assert_eq!((x, y), (1810, 960)); // 1810+100=1910, 960+100=1060
+    }
+
+    /// Corner case: window exactly fits at bottom-right.
+    #[test]
+    fn prevent_overflow_exact_fit() {
+        let (x, y) = clamp_window_position_to_bounds(
+            0, 0, 1920, 1080,
+            1820, 980, 100, 100,
+        );
+        assert_eq!((x, y), (1820, 980));
+    }
+
+    // ---------------------------------------------------------------------------
+    // c_str_to_string
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn c_str_to_string_null_returns_empty() {
+        let out = unsafe { c_str_to_string(std::ptr::null()) };
+        assert_eq!(out, "");
+    }
+
+    #[test]
+    fn c_str_to_string_valid_utf8_returns_string() {
+        let c = CString::new("hello").unwrap();
+        let out = unsafe { c_str_to_string(c.as_ptr()) };
+        assert_eq!(out, "hello");
+    }
+
+    #[test]
+    fn c_str_to_string_invalid_utf8_returns_empty() {
+        let c = unsafe { CStr::from_bytes_with_nul_unchecked(b"\xff\xfe\0") };
+        let out = unsafe { c_str_to_string(c.as_ptr()) };
+        assert_eq!(out, "");
+    }
+
+    // ---------------------------------------------------------------------------
+    // decode_icon_from_bytes
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn decode_icon_from_bytes_empty_returns_none() {
+        assert!(decode_icon_from_bytes(&[]).is_none());
+    }
+
+    #[test]
+    fn decode_icon_from_bytes_invalid_returns_none() {
+        assert!(decode_icon_from_bytes(b"not an image").is_none());
+    }
+
+    #[test]
+    fn decode_icon_from_bytes_valid_png_returns_some() {
+        // Minimal 1x1 red pixel PNG (68 bytes)
+        const MINIMAL_PNG: &[u8] = &[
+            0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48,
+            0x44, 0x52, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x02, 0x00, 0x00,
+            0x00, 0x90, 0x77, 0x53, 0xde, 0x00, 0x00, 0x00, 0x0c, 0x49, 0x44, 0x41, 0x54, 0x08,
+            0xd7, 0x63, 0xf8, 0xff, 0xff, 0x3f, 0x00, 0x05, 0xfe, 0x02, 0xfe, 0xdc, 0xcc, 0x59,
+            0xe7, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82,
+        ];
+        let icon = decode_icon_from_bytes(MINIMAL_PNG);
+        assert!(icon.is_some());
+    }
 }
 
