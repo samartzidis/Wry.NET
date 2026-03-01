@@ -45,6 +45,33 @@ public class CancellationService
         => Task.FromResult(name);
 }
 
+/// <summary>Stand-in for Wry.NET.Bridge.CallContext; generator filters params by name "CallContext".</summary>
+public class CallContext
+{
+    public object? Window => null;
+}
+
+[BridgeService]
+public class CallContextService
+{
+    public string GetTitle(CallContext ctx) => "Title";
+    public string GetTitleWithArg(CallContext ctx, string name) => name;
+}
+
+[BridgeService]
+public class EmptyService
+{
+}
+
+[BridgeService]
+public class AllIgnoredService
+{
+    [BridgeIgnore]
+    public string Hidden1() => "";
+    [BridgeIgnore]
+    public void Hidden2() { }
+}
+
 [BridgeService]
 public class ModelService
 {
@@ -56,6 +83,9 @@ public class ModelService
     public Dictionary<string, int> GetDict() => new();
     public ModelWithEnum GetWithEnum() => new();
     public byte[] EchoBytes(byte[] data) => data;
+    public EmptyModel GetEmptyModel() => new();
+    public EdgeCaseEnum GetEdgeCaseEnum() => EdgeCaseEnum.Zero;
+    public TypeWithOptionalFromContext GetTypeWithOptionalContext() => new();
 }
 
 /// <summary>Not marked with [BridgeService] — should be ignored.</summary>
@@ -113,6 +143,23 @@ public enum TestEnum
     None = 0,
     First = 1,
     Second = 2
+}
+
+public enum EdgeCaseEnum
+{
+    Zero = 0,
+    Negative = -1,
+    SameAsZero = 0
+}
+
+public class EmptyModel
+{
+}
+
+/// <summary>Used to assert type-level nullable context is detected (NullableContextAttribute on type).</summary>
+public class TypeWithOptionalFromContext
+{
+    public string? OptionalFromContext { get; set; }
 }
 
 public class ModelWithEnum

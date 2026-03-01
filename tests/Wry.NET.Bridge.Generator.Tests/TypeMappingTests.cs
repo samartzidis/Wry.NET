@@ -117,9 +117,25 @@ public class TypeMappingTests
     public void Maps_IDictionaryStringString_To_Record()
         => Assert.Equal("Record<string, string>", Map(typeof(IDictionary<string, string>)));
 
+    [Fact]
+    public void Maps_IReadOnlyDictionaryStringInt_To_Record()
+        => Assert.Equal("Record<string, number>", Map(typeof(IReadOnlyDictionary<string, int>)));
+
+    [Fact]
+    public void Maps_ICollectionOfString_To_StringArray()
+        => Assert.Equal("string[]", Map(typeof(ICollection<string>)));
+
+    [Fact]
+    public void Maps_IReadOnlyCollectionOfInt_To_NumberArray()
+        => Assert.Equal("number[]", Map(typeof(IReadOnlyCollection<int>)));
+
     #endregion
 
     #region Async Unwrapping
+
+    [Fact]
+    public void Maps_NonGenericTask_To_Void()
+        => Assert.Equal("void", Map(typeof(Task)));
 
     [Fact]
     public void Maps_TaskOfString_To_String()

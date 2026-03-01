@@ -1,5 +1,5 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { GreetService, DialogService, onProgress, WryDialogKind, WryDialogButtons } from "./bindings";
+import { BackendService, DialogService, onProgress, onChildButtonPressed, WryDialogKind, WryDialogButtons } from "./bindings";
 import type { Person, Employee, ProgressEvent } from "./bindings";
 import {
   callWithOptions,
@@ -25,6 +25,7 @@ function App() {
   const [progressResult, setProgressResult] = useState<string>("");
   const [error, setError] = useState<string>("");
   const [dialogResult, setDialogResult] = useState<string>("");
+  const [childMessage, setChildMessage] = useState<string>("");
 
   // Ref to hold the cancellable promise for the cancellation test
   const cancelRef = useRef<CancellablePromise<string> | null>(null);
@@ -38,10 +39,18 @@ function App() {
     return unsub;
   }, []);
 
+  // Subscribe to child window button presses (cross-window communication demo)
+  useEffect(() => {
+    const unsub = onChildButtonPressed((data) => {
+      setChildMessage(`${data.message} at ${data.time}`);
+    });
+    return unsub;
+  }, []);
+
   const handleGreet = useCallback(async () => {
     try {
       setError("");
-      const result = await GreetService.Greet("World");
+      const result = await BackendService.Greet("World");
       setGreeting(result);
     } catch (e) {
       setError((e as Error).message);
@@ -51,7 +60,7 @@ function App() {
   const handleGetPerson = useCallback(async () => {
     try {
       setError("");
-      const result = await GreetService.GetPerson("Alice", 30);
+      const result = await BackendService.GetPerson("Alice", 30);
       setPerson(result);
     } catch (e) {
       setError((e as Error).message);
@@ -61,7 +70,7 @@ function App() {
   const handleAdd = useCallback(async () => {
     try {
       setError("");
-      const result = await GreetService.Add(17, 25);
+      const result = await BackendService.Add(17, 25);
       setSum(result);
     } catch (e) {
       setError((e as Error).message);
@@ -72,7 +81,7 @@ function App() {
     try {
       setError("");
       setAsyncMsg("Waiting...");
-      const result = await GreetService.GetGreetingAsync("TypeScript");
+      const result = await BackendService.GetGreetingAsync("TypeScript");
       setAsyncMsg(result);
     } catch (e) {
       setError((e as Error).message);
@@ -82,7 +91,7 @@ function App() {
   const handleGetPeople = useCallback(async () => {
     try {
       setError("");
-      const result = await GreetService.GetPeople();
+      const result = await BackendService.GetPeople();
       setPeople(result);
     } catch (e) {
       setError((e as Error).message);
@@ -92,7 +101,7 @@ function App() {
   const handleGetEmployee = useCallback(async () => {
     try {
       setError("");
-      const result = await GreetService.GetEmployee("Dana", "Engineering");
+      const result = await BackendService.GetEmployee("Dana", "Engineering");
       setEmployee(result);
     } catch (e) {
       setError((e as Error).message);
@@ -106,7 +115,7 @@ function App() {
       setError("");
       // Send base64-encoded bytes "Hello" = SGVsbG8=
       const input = btoa("Hello");
-      const result = await GreetService.EchoBytes(input);
+      const result = await BackendService.EchoBytes(input);
       // result is base64 of the reversed bytes
       const decoded = atob(result);
       setBytesResult(
@@ -121,7 +130,7 @@ function App() {
     try {
       setError("");
       setValueTaskResult("Waiting...");
-      const result = await GreetService.GetValueTaskGreeting("TypeScript");
+      const result = await BackendService.GetValueTaskGreeting("TypeScript");
       setValueTaskResult(result);
     } catch (e) {
       setError((e as Error).message);
@@ -135,7 +144,7 @@ function App() {
       // Call a method that takes 60 seconds, but with a 3-second timeout
       const result = await callWithOptions<string>(
         { timeoutMs: 3000 },
-        "GreetService.SlowMethod",
+        "BackendService.SlowMethod",
         60
       );
       setTimeoutResult(result);
@@ -156,7 +165,7 @@ function App() {
       setCancelResult("Started SlowMethod(60) — click Cancel to abort...");
       const p = new CancellablePromise<string>(
         { timeoutMs: 0 }, // no auto-timeout, manual cancel only
-        "GreetService.SlowMethod",
+        "BackendService.SlowMethod",
         60
       );
       cancelRef.current = p;
@@ -187,7 +196,7 @@ function App() {
       setProgressPercent(0);
       setProgressMsg("Starting...");
       setProgressResult("");
-      const result = await GreetService.RunWithProgress(6);
+      const result = await BackendService.RunWithProgress(6);
       setProgressResult(result);
     } catch (e) {
       setError((e as Error).message);
@@ -293,6 +302,12 @@ function App() {
         Typed RPC calls from React/TypeScript to .NET via auto-generated
         bindings.
       </p>
+
+      {childMessage && (
+        <div className="result-item" style={{ marginBottom: "1rem", padding: "0.5rem", background: "rgba(100,108,255,0.1)", borderRadius: 4 }}>
+          <strong>From child window:</strong> {childMessage}
+        </div>
+      )}
 
       {error && <div className="error">{error}</div>}
 

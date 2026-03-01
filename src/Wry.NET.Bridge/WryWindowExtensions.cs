@@ -32,6 +32,8 @@ public static class WryWindowExtensions
     /// <param name="resourcePrefix">Resource name prefix (default: <c>frontend/</c>).</param>
     /// <param name="entryFile">Entry HTML file name (default: <c>index.html</c>).</param>
     /// <param name="scheme">Custom scheme name (default: <c>app</c>).</param>
+    /// <param name="pathFragment">Optional relative path or fragment to append to the entry URL
+    /// (e.g. <c>#/child</c> for a child window route in a single SPA).</param>
     /// <param name="loggerFactory">Optional logger factory. When provided, loggers are created
     /// internally for the asset server and loading diagnostics.</param>
     /// <returns>The window, for fluent chaining.</returns>
@@ -43,6 +45,7 @@ public static class WryWindowExtensions
         string resourcePrefix = "frontend/",
         string entryFile = "index.html",
         string scheme = "app",
+        string? pathFragment = null,
         ILoggerFactory? loggerFactory = null)
     {
         ArgumentNullException.ThrowIfNull(window);
@@ -54,8 +57,8 @@ public static class WryWindowExtensions
         // 1. Dev server
         if (!string.IsNullOrEmpty(devUrl))
         {
-            window.Url = devUrl;
-            log.LogInformation("Dev mode: loading from {Url}", devUrl);
+            window.Url = devUrl + (pathFragment ?? "");
+            log.LogInformation("Dev mode: loading from {Url}", window.Url);
             return window;
         }
 
@@ -66,7 +69,7 @@ public static class WryWindowExtensions
             if (server != null)
             {
                 server.Register(window);
-                window.Url = server.EntryUrl;
+                window.Url = server.EntryUrl + (pathFragment ?? "");
                 log.LogInformation("Serving {AssetCount} embedded frontend assets via '{Scheme}://' scheme",
                     server.AssetCount, server.Scheme);
                 return window;
@@ -83,7 +86,7 @@ public static class WryWindowExtensions
         var server2 = new DiskAssetServer(diskDir, entryFile, scheme,
             loggerFactory?.CreateLogger<DiskAssetServer>());
         server2.Register(window);
-        window.Url = server2.EntryUrl;
+        window.Url = server2.EntryUrl + (pathFragment ?? "");
         log.LogInformation("Serving frontend from disk via '{Scheme}://' scheme ({Path})", scheme, diskDir);
         return window;
     }

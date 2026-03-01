@@ -2,22 +2,25 @@ namespace Wry.NET.Bridge.Generator;
 
 static class TypeMapper
 {
+    // No typeof(void) in C#; use constant for return type void
+    private const string VoidFullName = "System.Void";
+
     internal static readonly HashSet<string> TaskTypeNames = new()
     {
-        "System.Threading.Tasks.Task",
-        "System.Threading.Tasks.ValueTask"
+        typeof(Task).FullName!,
+        typeof(ValueTask).FullName!
     };
 
     internal static readonly HashSet<string> GenericTaskTypeNames = new()
     {
-        "System.Threading.Tasks.Task`1",
-        "System.Threading.Tasks.ValueTask`1"
+        typeof(Task<>).FullName!,
+        typeof(ValueTask<>).FullName!
     };
 
     internal static string MapTypeToTS(Type type, Dictionary<string, TypeDef> models)
     {
         // Handle void
-        if (type.FullName == "System.Void")
+        if (type.FullName == VoidFullName)
             return "void";
 
         // Handle Task / Task<T> / ValueTask / ValueTask<T>
@@ -33,31 +36,31 @@ static class TypeMapper
         }
 
         // Handle Nullable<T>
-        if (type.IsGenericType && type.GetGenericTypeDefinition().FullName == "System.Nullable`1")
+        if (type.IsGenericType && type.GetGenericTypeDefinition().FullName == typeof(Nullable<>).FullName)
         {
             var inner = type.GetGenericArguments()[0];
             return $"{MapTypeToTS(inner, models)} | null";
         }
 
-        // Primitives
+        // Primitives (type-safe full names)
         var mapped = type.FullName switch
         {
-            "System.String" => "string",
-            "System.Boolean" => "boolean",
-            "System.Byte" or "System.SByte" => "number",
-            "System.Int16" or "System.UInt16" => "number",
-            "System.Int32" or "System.UInt32" => "number",
-            "System.Int64" or "System.UInt64" => "number",
-            "System.Single" or "System.Double" or "System.Decimal" => "number",
-            "System.DateTime" or "System.DateTimeOffset" => "string",
-            "System.Guid" => "string",
-            "System.Object" => "unknown",
+            _ when type.FullName == typeof(string).FullName => "string",
+            _ when type.FullName == typeof(bool).FullName => "boolean",
+            _ when type.FullName == typeof(byte).FullName || type.FullName == typeof(sbyte).FullName => "number",
+            _ when type.FullName == typeof(short).FullName || type.FullName == typeof(ushort).FullName => "number",
+            _ when type.FullName == typeof(int).FullName || type.FullName == typeof(uint).FullName => "number",
+            _ when type.FullName == typeof(long).FullName || type.FullName == typeof(ulong).FullName => "number",
+            _ when type.FullName == typeof(float).FullName || type.FullName == typeof(double).FullName || type.FullName == typeof(decimal).FullName => "number",
+            _ when type.FullName == typeof(DateTime).FullName || type.FullName == typeof(DateTimeOffset).FullName => "string",
+            _ when type.FullName == typeof(Guid).FullName => "string",
+            _ when type.FullName == typeof(object).FullName => "unknown",
             _ => null
         };
         if (mapped != null) return mapped;
 
         // byte[] is special: System.Text.Json serializes it as a base64 string
-        if (type.IsArray && type.GetElementType()?.FullName == "System.Byte")
+        if (type.IsArray && type.GetElementType()?.FullName == typeof(byte).FullName)
         {
             return "string";
         }
@@ -75,20 +78,22 @@ static class TypeMapper
             var genDef = type.GetGenericTypeDefinition().FullName;
             var genArgs = type.GetGenericArguments();
 
-            if (genDef is "System.Collections.Generic.List`1"
-                or "System.Collections.Generic.IList`1"
-                or "System.Collections.Generic.IEnumerable`1"
-                or "System.Collections.Generic.ICollection`1"
-                or "System.Collections.Generic.IReadOnlyList`1"
-                or "System.Collections.Generic.IReadOnlyCollection`1")
+            if (genDef is {} listLike && (
+                listLike == typeof(List<>).FullName ||
+                listLike == typeof(IList<>).FullName ||
+                listLike == typeof(IEnumerable<>).FullName ||
+                listLike == typeof(ICollection<>).FullName ||
+                listLike == typeof(IReadOnlyList<>).FullName ||
+                listLike == typeof(IReadOnlyCollection<>).FullName))
             {
                 return $"{MapTypeToTS(genArgs[0], models)}[]";
             }
 
             // Dictionary<K,V>
-            if (genDef is "System.Collections.Generic.Dictionary`2"
-                or "System.Collections.Generic.IDictionary`2"
-                or "System.Collections.Generic.IReadOnlyDictionary`2")
+            if (genDef is {} dictLike && (
+                dictLike == typeof(Dictionary<,>).FullName ||
+                dictLike == typeof(IDictionary<,>).FullName ||
+                dictLike == typeof(IReadOnlyDictionary<,>).FullName))
             {
                 var keyTs = MapTypeToTS(genArgs[0], models);
                 var valTs = MapTypeToTS(genArgs[1], models);

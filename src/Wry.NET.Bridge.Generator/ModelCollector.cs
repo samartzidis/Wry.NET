@@ -1,4 +1,6 @@
 using System.Reflection;
+using System.Runtime.CompilerServices;
+using System.Text.Json.Serialization;
 
 namespace Wry.NET.Bridge.Generator;
 
@@ -7,7 +9,7 @@ static class ModelCollector
     internal static void CollectModels(Type type, Dictionary<string, TypeDef> models, Assembly sourceAssembly)
     {
         // Unwrap nullables, arrays, generics
-        if (type.IsGenericType && type.GetGenericTypeDefinition().FullName == "System.Nullable`1")
+        if (type.IsGenericType && type.GetGenericTypeDefinition().FullName == typeof(Nullable<>).FullName)
         {
             CollectModels(type.GetGenericArguments()[0], models, sourceAssembly);
             return;
@@ -70,7 +72,7 @@ static class ModelCollector
         foreach (var prop in type.GetProperties(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
         {
             // Skip properties marked with [JsonIgnore]
-            if (prop.CustomAttributes.Any(a => a.AttributeType.Name == "JsonIgnoreAttribute"))
+            if (prop.CustomAttributes.Any(a => a.AttributeType.Name == nameof(JsonIgnoreAttribute)))
                 continue;
 
             var isNullableRef = IsNullableReferenceProperty(prop, type);
@@ -108,8 +110,8 @@ static class ModelCollector
 
         // Check for [Nullable] attribute on the property itself
         var nullableAttr = prop.CustomAttributes
-            .FirstOrDefault(a => a.AttributeType.Name == "NullableAttribute" &&
-                                  a.AttributeType.Namespace == "System.Runtime.CompilerServices");
+            .FirstOrDefault(a => a.AttributeType.Name == nameof(NullableAttribute) &&
+                                  a.AttributeType.Namespace == typeof(NullableAttribute).Namespace);
 
         if (nullableAttr != null)
         {
@@ -121,8 +123,8 @@ static class ModelCollector
 
         // Fall back to [NullableContext] on the declaring type
         var contextAttr = declaringType.CustomAttributes
-            .FirstOrDefault(a => a.AttributeType.Name == "NullableContextAttribute" &&
-                                  a.AttributeType.Namespace == "System.Runtime.CompilerServices");
+            .FirstOrDefault(a => a.AttributeType.Name == nameof(NullableContextAttribute) &&
+                                  a.AttributeType.Namespace == typeof(NullableContextAttribute).Namespace);
 
         if (contextAttr != null)
         {
@@ -140,7 +142,7 @@ static class ModelCollector
     internal static string? GetJsonPropertyName(PropertyInfo prop)
     {
         var attr = prop.CustomAttributes
-            .FirstOrDefault(a => a.AttributeType.Name == "JsonPropertyNameAttribute");
+            .FirstOrDefault(a => a.AttributeType.Name == nameof(JsonPropertyNameAttribute));
         if (attr == null) return null;
 
         var ctorArg = attr.ConstructorArguments.FirstOrDefault();

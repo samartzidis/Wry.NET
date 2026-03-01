@@ -224,6 +224,48 @@ public class ModelCollectionTests : IClassFixture<AssemblyHelper>
         Assert.False(nullableInt.IsNullableRef);
     }
 
+    [Fact]
+    public void DetectsNullableReferenceType_FromTypeNullableContext()
+    {
+        var models = Collect(typeof(TypeWithOptionalFromContext));
+        var model = models.Values.First();
+
+        var optional = model.Properties!.First(p => p.Name == "OptionalFromContext");
+        Assert.True(optional.IsNullableRef);
+    }
+
+    #endregion
+
+    #region Edge cases
+
+    [Fact]
+    public void CollectsEmptyModel_WithNoProperties()
+    {
+        var models = Collect(typeof(EmptyModel));
+
+        Assert.Single(models);
+        var model = models.Values.First();
+        Assert.Equal("EmptyModel", model.Name);
+        Assert.NotNull(model.Properties);
+        Assert.Empty(model.Properties!);
+    }
+
+    [Fact]
+    public void CollectsEnum_WithNegativeAndDuplicateValues()
+    {
+        var models = Collect(typeof(EdgeCaseEnum));
+
+        Assert.Single(models);
+        var model = models.Values.First();
+        Assert.Equal("EdgeCaseEnum", model.Name);
+        Assert.Equal(TypeDefKind.Enum, model.Kind);
+        Assert.NotNull(model.EnumValues);
+        Assert.Equal(3, model.EnumValues!.Count);
+        Assert.Contains(model.EnumValues, v => v.Name == "Zero" && (int)(v.Value ?? 0) == 0);
+        Assert.Contains(model.EnumValues, v => v.Name == "Negative" && (int)(v.Value ?? 0) == -1);
+        Assert.Contains(model.EnumValues, v => v.Name == "SameAsZero" && (int)(v.Value ?? 0) == 0);
+    }
+
     #endregion
 
     #region Deduplication

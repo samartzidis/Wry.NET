@@ -79,6 +79,20 @@ public class DiscoveryTests : IClassFixture<AssemblyHelper>
     }
 
     [Fact]
+    public void DiscoverServices_FiltersCallContextParameters()
+    {
+        var services = ServiceDiscovery.DiscoverServices(_helper.TestAssembly);
+        var svc = services.First(s => s.Name == "CallContextService");
+
+        var getTitle = svc.Methods.First(m => m.Name == "GetTitle");
+        Assert.Empty(getTitle.Parameters);
+
+        var getTitleWithArg = svc.Methods.First(m => m.Name == "GetTitleWithArg");
+        Assert.Single(getTitleWithArg.Parameters);
+        Assert.Equal("name", getTitleWithArg.Parameters[0].Name);
+    }
+
+    [Fact]
     public void DiscoverServices_SkipsSpecialMethods()
     {
         var services = ServiceDiscovery.DiscoverServices(_helper.TestAssembly);
@@ -111,6 +125,24 @@ public class DiscoveryTests : IClassFixture<AssemblyHelper>
         Assert.Contains(svc.Methods, m => m.Name == "Greet");
         Assert.Contains(svc.Methods, m => m.Name == "Add");
         Assert.Contains(svc.Methods, m => m.Name == "DoNothing");
+    }
+
+    [Fact]
+    public void DiscoverServices_EmptyService_HasNoMethods()
+    {
+        var services = ServiceDiscovery.DiscoverServices(_helper.TestAssembly);
+        var svc = services.First(s => s.Name == "EmptyService");
+
+        Assert.Empty(svc.Methods);
+    }
+
+    [Fact]
+    public void DiscoverServices_AllIgnoredService_HasNoMethods()
+    {
+        var services = ServiceDiscovery.DiscoverServices(_helper.TestAssembly);
+        var svc = services.First(s => s.Name == "AllIgnoredService");
+
+        Assert.Empty(svc.Methods);
     }
 
     #endregion

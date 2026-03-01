@@ -60,6 +60,7 @@ public class EndToEndTests : IDisposable
         Assert.True(File.Exists(Path.Combine(_outputDir, "ModelService.ts")));
         Assert.True(File.Exists(Path.Combine(_outputDir, "CancellationService.ts")));
         Assert.True(File.Exists(Path.Combine(_outputDir, "IgnoredMethodService.ts")));
+        Assert.True(File.Exists(Path.Combine(_outputDir, "CallContextService.ts")));
     }
 
     [Fact]
@@ -173,6 +174,20 @@ public class EndToEndTests : IDisposable
     }
 
     [Fact]
+    public void Main_WithTestAssembly_CallContextStrippedFromSignature()
+    {
+        var assemblyPath = typeof(BasicService).Assembly.Location;
+
+        Program.Main(new[] { assemblyPath, _outputDir });
+
+        var content = File.ReadAllText(Path.Combine(_outputDir, "CallContextService.ts"));
+        Assert.Contains("export function GetTitle(): Promise<string>", content);
+        Assert.Contains("export function GetTitleWithArg(name: string): Promise<string>", content);
+        Assert.DoesNotContain("ctx:", content);
+        Assert.DoesNotContain("ctx)", content);
+    }
+
+    [Fact]
     public void Main_WithTestAssembly_JsonPropertyNameRespected()
     {
         var assemblyPath = typeof(BasicService).Assembly.Location;
@@ -213,6 +228,42 @@ public class EndToEndTests : IDisposable
         Program.Main(new[] { assemblyPath, _outputDir });
 
         Assert.False(File.Exists(staleFile), "Stale file should be deleted on subsequent run");
+    }
+
+    [Fact]
+    public void Main_WithTestAssembly_GeneratesEmptyAndAllIgnoredServiceFiles()
+    {
+        var assemblyPath = typeof(BasicService).Assembly.Location;
+
+        Program.Main(new[] { assemblyPath, _outputDir });
+
+        var emptyPath = Path.Combine(_outputDir, "EmptyService.ts");
+        var allIgnoredPath = Path.Combine(_outputDir, "AllIgnoredService.ts");
+        Assert.True(File.Exists(emptyPath));
+        Assert.True(File.Exists(allIgnoredPath));
+
+        var emptyContent = File.ReadAllText(emptyPath);
+        Assert.Contains("// Auto-generated", emptyContent);
+        Assert.Contains("import { call }", emptyContent);
+
+        var allIgnoredContent = File.ReadAllText(allIgnoredPath);
+        Assert.Contains("// Auto-generated", allIgnoredContent);
+        Assert.DoesNotContain("Hidden1", allIgnoredContent);
+        Assert.DoesNotContain("Hidden2", allIgnoredContent);
+    }
+
+    [Fact]
+    public void Main_WithTestAssembly_GeneratesEmptyModelAndEdgeCaseEnum()
+    {
+        var assemblyPath = typeof(BasicService).Assembly.Location;
+
+        Program.Main(new[] { assemblyPath, _outputDir });
+
+        var content = File.ReadAllText(Path.Combine(_outputDir, "models.ts"));
+        Assert.Contains("export interface EmptyModel {", content);
+        Assert.Contains("export enum EdgeCaseEnum", content);
+        Assert.Contains("Negative = -1", content);
+        Assert.Contains("SameAsZero = 0", content);
     }
 
     #endregion

@@ -92,6 +92,17 @@ public class CodeGenerationTests
         Assert.Contains("firstName", result);
     }
 
+    [Fact]
+    public void GenerateServiceFile_ServiceWithNoMethods_ProducesValidFile()
+    {
+        var service = new ServiceDef("EmptySvc", new List<MethodDef>());
+        var result = CodeEmitter.GenerateServiceFile(service, new Dictionary<string, TypeDef>());
+
+        Assert.StartsWith(CodeEmitter.GeneratedHeader, result);
+        Assert.Contains("import { call } from \"./runtime\";", result);
+        Assert.DoesNotContain("export function", result);
+    }
+
     #endregion
 
     #region GenerateModelsFile
@@ -114,6 +125,21 @@ public class CodeGenerationTests
         Assert.Contains("export interface SimpleModel {", result);
         Assert.Contains("  name: string;", result);
         Assert.Contains("  value: number;", result);
+    }
+
+    [Fact]
+    public void GenerateModelsFile_EmptyInterface_GeneratesValidOutput()
+    {
+        var models = new Dictionary<string, TypeDef>
+        {
+            ["Ns.EmptyModel"] = new TypeDef("EmptyModel", "Ns.EmptyModel", TypeDefKind.Interface,
+                new List<PropertyDef>(), null)
+        };
+
+        var result = CodeEmitter.GenerateModelsFile(models);
+
+        Assert.Contains("export interface EmptyModel {", result);
+        Assert.Contains("}", result);
     }
 
     [Fact]

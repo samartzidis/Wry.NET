@@ -92,7 +92,7 @@ static class CodeEmitter
 
                     // Check if nullable (Nullable<T> for value types, NRT for reference types)
                     var isNullableValue = prop.Type.IsGenericType &&
-                        prop.Type.GetGenericTypeDefinition().FullName == "System.Nullable`1";
+                        prop.Type.GetGenericTypeDefinition().FullName == typeof(Nullable<>).FullName;
                     var isOptional = isNullableValue || prop.IsNullableRef;
 
                     if (isOptional)

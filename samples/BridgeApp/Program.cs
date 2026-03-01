@@ -21,7 +21,11 @@ namespace SampleApp
             // Set up the bridge and register services
             var bridge = new WryBridge(loggerFactory.CreateLogger<WryBridge>());
             bridge.RegisterDialogService();
-            bridge.RegisterService(new GreetService(bridge));
+            bridge.RegisterService(new BackendService(bridge));
+
+            // Resolve dev URL from CLI arg (--dev-url=...) or environment variable.
+            var devUrl = args.FirstOrDefault(a => a.StartsWith("--dev-url="))?.Split('=', 2)[1]
+                      ?? Environment.GetEnvironmentVariable("WRY_DEV_URL");
 
             // Create the Wry.NET application and window
             using var app = new WryApp();
@@ -75,11 +79,23 @@ namespace SampleApp
                         window.Dispatch(w => w.Visible = false);
                         break;
                     case "new_window":
-                        // Dynamic window creation with main window as owner (stays on top, closes with main).
-                        var second = app.CreateWindow(owner: window);
-                        second.Title = "Second Window (dynamic)";
-                        second.Size = (600, 400);
-                        second.Visible = true;
+                        // Dynamic child window: same SPA, route ?window=child. Owner = main (stays on top, closes with main).
+                        // URL and protocol are applied to the queued window (Tauri-style: config at create time).
+                        var child = app.CreateWindow(owner: window);
+                        child.Title = "Child Window (dynamic)";
+                        child.Size = (600, 400);
+                        child.Visible = false;
+                        child.LoadFrontend(
+                            assembly: Assembly.GetExecutingAssembly(),
+                            devUrl: devUrl,
+                            pathFragment: "#/child",
+                            loggerFactory: loggerFactory);
+                        bridge.Attach(child);
+                        child.PageLoad += (_, pe) =>
+                        {
+                            if (pe.Event == WryPageLoadEvent.Finished)
+                                child.Visible = true;
+                        };
                         break;
                     case "quit":
                         foreach (var w in app.Windows)
@@ -88,13 +104,7 @@ namespace SampleApp
                 }
             };
 
-            // Resolve dev URL from CLI arg (--dev-url=...) or environment variable.
-            // When set, the WebView loads from the dev server (e.g. Vite HMR) instead of
-            // embedded/disk assets. Any approach works - this is the sample's choice, not the library's.
-            var devUrl = args.FirstOrDefault(a => a.StartsWith("--dev-url="))?.Split('=', 2)[1]
-                      ?? Environment.GetEnvironmentVariable("WRY_DEV_URL");
-
-            // Configure frontend loading: dev server -> embedded assets -> disk fallback
+            // Configure frontend loading for main window: dev server -> embedded assets -> disk fallback
             window.LoadFrontend(
                 assembly: Assembly.GetExecutingAssembly(),
                 devUrl: devUrl,

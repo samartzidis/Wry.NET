@@ -23,8 +23,7 @@ static class ServiceDiscovery
             foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
             {
                 if (method.IsSpecialName) 
-                    continue;
-                    
+                    continue;                    
                 if (method.CustomAttributes.Any(a => a.AttributeType.Name == "BridgeIgnoreAttribute")) 
                     continue;
 
@@ -35,7 +34,7 @@ static class ServiceDiscovery
                 // auto-injected by the bridge and must not appear in the TS signature.
                 var parameters = method.GetParameters()
                     .Where(p => p.ParameterType.Name != "CallContext"
-                        && p.ParameterType.FullName != "System.Threading.CancellationToken")
+                        && p.ParameterType.FullName != typeof(CancellationToken).FullName)
                     .Select(p => new ParamDef(p.Name ?? $"arg{p.Position}", p.ParameterType))
                     .ToList();
 

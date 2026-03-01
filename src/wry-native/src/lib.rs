@@ -21,10 +21,8 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
-use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::thread;
 
 /// Log a wry Result error to stderr if it failed. Used instead of `let _ =`
 /// so that errors are visible in debug output.
@@ -687,8 +685,6 @@ pub struct WryApp {
     run_started: Arc<AtomicBool>,
     /// Windows created via wry_window_new after run started; processed on main thread.
     dynamic_window_queue: Arc<Mutex<Vec<WryWindow>>>,
-    /// Thread id of the thread that called wry_app_run (main thread). Set at run start.
-    main_thread_id: Option<thread::ThreadId>,
     /// Called when a window is materialized and live (initial or dynamic).
     window_created_handler: Option<(WindowCreatedCallback, usize)>,
     /// Called when dynamic window creation fails (async path only).
@@ -767,52 +763,6 @@ pub(crate) unsafe fn c_str_to_string(s: *const c_char) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// Main-thread sync window creation (Tauri-style: create immediately when on main thread)
-// ---------------------------------------------------------------------------
-
-/// Opaque context set by the event loop so wry_window_new can create synchronously on the main thread.
-struct MainLoopCtx {
-    event_loop: *const EventLoopWindowTarget<UserEvent>,
-    live_windows: *mut HashMap<WindowId, WryWindow>,
-    id_to_window_id: *mut HashMap<usize, WindowId>,
-}
-
-thread_local! {
-    static MAIN_LOOP_CTX: RefCell<Option<MainLoopCtx>> = RefCell::new(None);
-}
-
-/// Create one window on the main thread using the thread-local context. Call only from main thread when ctx is set.
-unsafe fn do_create_one_window_sync(
-    ctx: &MainLoopCtx,
-    mut win: WryWindow,
-    created_cb: Option<&(WindowCreatedCallback, usize)>,
-) -> Result<(), String> {
-    let live_windows = &mut *ctx.live_windows;
-    let id_to_window_id = &mut *ctx.id_to_window_id;
-    let event_loop = &*ctx.event_loop;
-
-    let owner_window = win.pending_owner_window_id.and_then(|oid| {
-        id_to_window_id.get(&oid).and_then(|tid| live_windows.get(tid)).and_then(|w| w.window.as_ref())
-    });
-    let parent_window = win.pending_parent_window_id.and_then(|pid| {
-        id_to_window_id.get(&pid).and_then(|tid| live_windows.get(tid)).and_then(|w| w.window.as_ref())
-    });
-
-    win.create(event_loop, owner_window, parent_window)?;
-
-    if let Some(wid) = win.window_id {
-        let our_id = win.id;
-        id_to_window_id.insert(our_id, wid);
-        live_windows.insert(wid, win);
-        if let Some((cb, ctx_usize)) = created_cb {
-            if let Some(win_ref) = live_windows.get_mut(&wid) {
-                cb(*ctx_usize as *mut c_void, our_id, win_ref as *mut WryWindow);
-            }
-        }
-    }
-    Ok(())
-}
-
 // ===========================================================================
 // EXPORTED C API
 // ===========================================================================
@@ -836,7 +786,6 @@ pub extern "C" fn wry_app_new() -> *mut WryApp {
         exit_requested_handler: None,
         run_started: Arc::new(AtomicBool::new(false)),
         dynamic_window_queue: Arc::new(Mutex::new(Vec::new())),
-        main_thread_id: None,
         window_created_handler: None,
         window_creation_error_handler: None,
         window_destroyed_handler: None,
@@ -852,7 +801,6 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
         return;
     }
     let app = unsafe { &mut *app };
-    app.main_thread_id = Some(thread::current().id());
 
     let mut event_loop = match app.event_loop.take() {
         Some(el) => el,
@@ -888,15 +836,6 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
     event_loop.run_return(move |event, event_loop_target, control_flow| {
         *control_flow = ControlFlow::Wait;
         run_started.store(true, Ordering::SeqCst);
-
-        // Set thread-local so wry_window_new can create synchronously when called from main thread (e.g. from Dispatch).
-        MAIN_LOOP_CTX.with(|cell| {
-            *cell.borrow_mut() = Some(MainLoopCtx {
-                event_loop: event_loop_target as *const _,
-                live_windows: &mut live_windows as *mut _,
-                id_to_window_id: &mut id_to_window_id as *mut _,
-            });
-        });
 
         match event {
             Event::NewEvents(StartCause::Init) => {
@@ -1229,10 +1168,9 @@ pub extern "C" fn wry_app_destroy(app: *mut WryApp) {
 // Window creation
 // ---------------------------------------------------------------------------
 
-/// Create a new window handle. Before run: window is created when the event loop starts.
-/// After run: if called on the main thread (e.g. from a Dispatch callback), the window is
-/// created synchronously; otherwise it is queued and created on the main thread (async path).
-/// Returns an opaque window ID, or 0 on failure (e.g. sync creation failed).
+/// Create a new window handle. Before run: window is stored and created when the event loop starts.
+/// After run: the window is queued and materialized on the next event loop tick so the caller can configure it first (URL, protocol, IPC).
+/// Returns an opaque window ID (never 0 on success).
 #[no_mangle]
 pub extern "C" fn wry_window_new(app: *mut WryApp) -> usize {
     wry_window_new_with_owner(app, 0)
@@ -1259,42 +1197,8 @@ pub extern "C" fn wry_window_new_with_owner(app: *mut WryApp, owner_window_id: u
         return id;
     }
 
-    // Run started: sync on main thread, else queue for async creation.
-    let on_main = app.main_thread_id.map(|tid| thread::current().id() == tid).unwrap_or(false);
-    if on_main {
-        let (result, win_for_queue) = MAIN_LOOP_CTX.with(|cell| {
-            if let Some(ctx) = cell.borrow().as_ref() {
-                let created_cb = app.window_created_handler.as_ref();
-                let r = unsafe { do_create_one_window_sync(ctx, win, created_cb) };
-                (Some(r), None)
-            } else {
-                (None, Some(win))
-            }
-        });
-        match result {
-            Some(Ok(())) => return id,
-            Some(Err(e)) => {
-                if let Some((cb, ctx)) = app.window_creation_error_handler.as_ref() {
-                    if let Ok(c_msg) = CString::new(e.as_str()) {
-                        cb(*ctx as *mut c_void, id, c_msg.as_ptr());
-                    }
-                }
-                return 0;
-            }
-            None => {
-                if let Some(w) = win_for_queue {
-                    if let Ok(mut q) = app.dynamic_window_queue.lock() {
-                        q.push(w);
-                        drop(q);
-                        let _ = app.proxy.send_event(UserEvent::CreateWindow);
-                    }
-                }
-                return id;
-            }
-        }
-    }
-
-    // Async path: queue and send event.
+    // Run started: always queue so C# can configure (URL, protocol, IPC) before the window is materialized.
+    // Otherwise on the main thread we would create synchronously and LoadFrontend would find no queued window.
     if let Ok(mut q) = app.dynamic_window_queue.lock() {
         q.push(win);
         drop(q);
@@ -1324,17 +1228,31 @@ fn get_pending_window(app: *mut WryApp, window_id: usize) -> Option<&'static mut
     })
 }
 
+/// Apply a function to a window in the dynamic creation queue (if present).
+/// Allows URL, protocol, etc. to be set on a window created via wry_window_new
+/// before it is materialized, matching Tauri's "URL at build time" model.
+fn with_queued_window(app: *mut WryApp, window_id: usize, f: impl FnOnce(&mut WryWindow)) {
+    if app.is_null() {
+        return;
+    }
+    let app = unsafe { &mut *app };
+    if let Ok(mut q) = app.dynamic_window_queue.lock() {
+        if let Some(win) = q.iter_mut().find(|w| w.id == window_id) {
+            f(win);
+        }
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Navigation & JS interop (pre-run: via app+id, post-run: via *mut WryWindow)
 // ---------------------------------------------------------------------------
 
-/// Set the URL to load. Call before `wry_app_run()`.
+/// Set the URL to load. Call before `wry_app_run()` or for a queued dynamic window before it is materialized.
 #[no_mangle]
 pub extern "C" fn wry_window_load_url(app: *mut WryApp, window_id: usize, url: *const c_char) {
+    let url = unsafe { c_str_to_string(url) };
     if let Some(win) = get_pending_window(app, window_id) {
-        let url = unsafe { c_str_to_string(url) };
         if win.webview.is_some() {
-            // Post-creation: navigate directly
             if let Some(ref wv) = win.webview {
                 log_err!(wv.load_url(&url), "load_url");
             }
@@ -1342,14 +1260,19 @@ pub extern "C" fn wry_window_load_url(app: *mut WryApp, window_id: usize, url: *
             win.pending_url = Some(url);
             win.pending_html = None;
         }
+    } else {
+        with_queued_window(app, window_id, |win| {
+            win.pending_url = Some(url);
+            win.pending_html = None;
+        });
     }
 }
 
-/// Set HTML content to load. Call before `wry_app_run()`.
+/// Set HTML content to load. Call before `wry_app_run()` or for a queued dynamic window.
 #[no_mangle]
 pub extern "C" fn wry_window_load_html(app: *mut WryApp, window_id: usize, html: *const c_char) {
+    let html = unsafe { c_str_to_string(html) };
     if let Some(win) = get_pending_window(app, window_id) {
-        let html = unsafe { c_str_to_string(html) };
         if win.webview.is_some() {
             if let Some(ref wv) = win.webview {
                 log_err!(wv.load_html(&html), "load_html");
@@ -1358,6 +1281,11 @@ pub extern "C" fn wry_window_load_html(app: *mut WryApp, window_id: usize, html:
             win.pending_html = Some(html);
             win.pending_url = None;
         }
+    } else {
+        with_queued_window(app, window_id, |win| {
+            win.pending_html = Some(html);
+            win.pending_url = None;
+        });
     }
 }
 
@@ -1409,18 +1337,23 @@ pub extern "C" fn wry_window_eval_js_callback(
 }
 
 /// Add an initialization script that runs before page load.
-/// Must be called before `wry_app_run()`.
+/// Must be called before `wry_app_run()` or for a queued dynamic window.
 #[no_mangle]
 pub extern "C" fn wry_window_add_init_script(
     app: *mut WryApp,
     window_id: usize,
     js: *const c_char,
 ) {
+    let js = unsafe { c_str_to_string(js) };
+    if js.is_empty() {
+        return;
+    }
     if let Some(win) = get_pending_window(app, window_id) {
-        let js = unsafe { c_str_to_string(js) };
-        if !js.is_empty() {
+        win.pending_init_scripts.push(js);
+    } else {
+        with_queued_window(app, window_id, |win| {
             win.pending_init_scripts.push(js);
-        }
+        });
     }
 }
 
@@ -1433,12 +1366,17 @@ pub extern "C" fn wry_window_set_ipc_handler(
     callback: IpcCallback,
     ctx: *mut c_void,
 ) {
+    let pair = (callback, ctx as usize);
     if let Some(win) = get_pending_window(app, window_id) {
-        win.ipc_handler = Some((callback, ctx as usize));
+        win.ipc_handler = Some(pair);
+    } else {
+        with_queued_window(app, window_id, |win| {
+            win.ipc_handler = Some(pair);
+        });
     }
 }
 
-/// Register a custom protocol handler. Must be called before `wry_app_run()`.
+/// Register a custom protocol handler. Must be called before `wry_app_run()` or for a queued dynamic window.
 ///
 /// When the webview navigates to `{scheme}://...`, the callback is invoked with
 /// the full URL and a responder handle. The callback MUST call
@@ -1451,15 +1389,21 @@ pub extern "C" fn wry_window_add_custom_protocol(
     callback: ProtocolHandlerCallback,
     ctx: *mut c_void,
 ) {
+    let scheme = unsafe { c_str_to_string(scheme) };
+    if scheme.is_empty() {
+        return;
+    }
+    let proto = PendingProtocol {
+        scheme,
+        callback,
+        ctx: ctx as usize,
+    };
     if let Some(win) = get_pending_window(app, window_id) {
-        let scheme = unsafe { c_str_to_string(scheme) };
-        if !scheme.is_empty() {
-            win.pending_protocols.push(PendingProtocol {
-                scheme,
-                callback,
-                ctx: ctx as usize,
-            });
-        }
+        win.pending_protocols.push(proto);
+    } else {
+        with_queued_window(app, window_id, |win| {
+            win.pending_protocols.push(proto);
+        });
     }
 }
 
