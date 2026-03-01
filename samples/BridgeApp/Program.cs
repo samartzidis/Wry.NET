@@ -59,6 +59,8 @@ namespace SampleApp
             menu.AddItem("show", "Show Window");
             menu.AddItem("hide", "Hide Window");
             menu.AddSeparator();
+            menu.AddItem("new_window", "New Window");
+            menu.AddSeparator();
             menu.AddItem("quit", "Quit");
             tray.Menu = menu;
 
@@ -72,8 +74,16 @@ namespace SampleApp
                     case "hide":
                         window.Dispatch(w => w.Visible = false);
                         break;
+                    case "new_window":
+                        // Dynamic window creation with main window as owner (stays on top, closes with main).
+                        var second = app.CreateWindow(owner: window);
+                        second.Title = "Second Window (dynamic)";
+                        second.Size = (600, 400);
+                        second.Visible = true;
+                        break;
                     case "quit":
-                        window.Dispatch(w => w.Close());
+                        foreach (var w in app.Windows)
+                            w.Dispatch(win => win.Close());
                         break;
                 }
             };

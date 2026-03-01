@@ -21,6 +21,10 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
+use std::cell::RefCell;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 /// Log a wry Result error to stderr if it failed. Used instead of `let _ =`
 /// so that errors are visible in debug output.
@@ -97,6 +101,18 @@ type DispatchCallback = extern "C" fn(*mut WryWindow, *mut c_void);
 /// Return true to allow exit, false to prevent.
 type ExitRequestedCallback = extern "C" fn(bool, c_int, *mut c_void) -> bool;
 
+/// Window created callback: fn(ctx: *mut c_void, window_id: usize, window_ptr: *mut WryWindow)
+/// Called when a window has been materialized and is live (initial or dynamic).
+type WindowCreatedCallback = extern "C" fn(*mut c_void, usize, *mut WryWindow);
+
+/// Window creation error callback: fn(ctx: *mut c_void, window_id: usize, error_message: *const c_char)
+/// Called when dynamic window creation fails (async path). error_message is UTF-8, may be null.
+type WindowCreationErrorCallback = extern "C" fn(*mut c_void, usize, *const c_char);
+
+/// Window destroyed callback: fn(ctx: *mut c_void, window_id: usize)
+/// Called when a window has been destroyed (platform Destroyed event - e.g. user closed or OS destroyed with owner).
+type WindowDestroyedCallback = extern "C" fn(*mut c_void, usize);
+
 /// Monitor enumeration callback:
 ///   fn(x: c_int, y: c_int, width: c_int, height: c_int, scale: f64, ctx: *mut c_void)
 /// Called once per monitor. Position is the top-left corner in physical pixels.
@@ -157,6 +173,8 @@ pub(crate) enum UserEvent {
     RequestExit {
         code: c_int,
     },
+    /// Create one window from the dynamic queue (posted when wry_window_new is called after run started).
+    CreateWindow,
 }
 
 // Safety: the ctx pointer is opaque and only dereferenced by the C caller's
@@ -258,6 +276,10 @@ pub struct WryWindow {
     window_id: Option<WindowId>,
 }
 
+// Safety: WryWindow is only sent to the main thread when it is pending (window and webview are None).
+// We only push to dynamic_window_queue before create() is called.
+unsafe impl Send for WryWindow {}
+
 impl WryWindow {
     fn new(id: usize) -> Self {
         Self {
@@ -340,7 +362,7 @@ impl WryWindow {
         event_loop: &EventLoopWindowTarget<UserEvent>,
         owner_window: Option<&Window>,
         parent_window: Option<&Window>,
-    ) {
+    ) -> Result<(), String> {
         let (w, h) = self.pending_size;
         let mut wb = TaoWindowBuilder::new()
             .with_title(&self.pending_title)
@@ -419,7 +441,7 @@ impl WryWindow {
             }
         }
 
-        let window = wb.build(event_loop).expect("failed to create window");
+        let window = wb.build(event_loop).map_err(|e| e.to_string())?;
 
         // Build webview -- optionally with a WebContext for data directory
         if let Some(ref dir) = self.pending_data_directory {
@@ -628,7 +650,7 @@ impl WryWindow {
 
         let webview = wvb
             .build(&window)
-            .expect("failed to create webview");
+            .map_err(|e| e.to_string())?;
 
         // Apply zoom if not default
         if (self.pending_zoom - 1.0).abs() > f64::EPSILON {
@@ -645,6 +667,7 @@ impl WryWindow {
                 w.set_minimized(true);
             }
         }
+        Ok(())
     }
 }
 
@@ -660,6 +683,17 @@ pub struct WryApp {
     pub(crate) trays: HashMap<usize, WryTray>,
     pub(crate) next_tray_id: usize,
     exit_requested_handler: Option<(ExitRequestedCallback, usize)>,
+    /// Set to true when the event loop is running (inside run_return). Used to decide initial vs dynamic window creation.
+    run_started: Arc<AtomicBool>,
+    /// Windows created via wry_window_new after run started; processed on main thread.
+    dynamic_window_queue: Arc<Mutex<Vec<WryWindow>>>,
+    /// Thread id of the thread that called wry_app_run (main thread). Set at run start.
+    main_thread_id: Option<thread::ThreadId>,
+    /// Called when a window is materialized and live (initial or dynamic).
+    window_created_handler: Option<(WindowCreatedCallback, usize)>,
+    /// Called when dynamic window creation fails (async path only).
+    window_creation_error_handler: Option<(WindowCreationErrorCallback, usize)>,
+    window_destroyed_handler: Option<(WindowDestroyedCallback, usize)>,
 }
 
 // Safety: WryApp is only accessed from the main thread. The proxy field is
@@ -732,6 +766,53 @@ pub(crate) unsafe fn c_str_to_string(s: *const c_char) -> String {
         .to_string()
 }
 
+// ---------------------------------------------------------------------------
+// Main-thread sync window creation (Tauri-style: create immediately when on main thread)
+// ---------------------------------------------------------------------------
+
+/// Opaque context set by the event loop so wry_window_new can create synchronously on the main thread.
+struct MainLoopCtx {
+    event_loop: *const EventLoopWindowTarget<UserEvent>,
+    live_windows: *mut HashMap<WindowId, WryWindow>,
+    id_to_window_id: *mut HashMap<usize, WindowId>,
+}
+
+thread_local! {
+    static MAIN_LOOP_CTX: RefCell<Option<MainLoopCtx>> = RefCell::new(None);
+}
+
+/// Create one window on the main thread using the thread-local context. Call only from main thread when ctx is set.
+unsafe fn do_create_one_window_sync(
+    ctx: &MainLoopCtx,
+    mut win: WryWindow,
+    created_cb: Option<&(WindowCreatedCallback, usize)>,
+) -> Result<(), String> {
+    let live_windows = &mut *ctx.live_windows;
+    let id_to_window_id = &mut *ctx.id_to_window_id;
+    let event_loop = &*ctx.event_loop;
+
+    let owner_window = win.pending_owner_window_id.and_then(|oid| {
+        id_to_window_id.get(&oid).and_then(|tid| live_windows.get(tid)).and_then(|w| w.window.as_ref())
+    });
+    let parent_window = win.pending_parent_window_id.and_then(|pid| {
+        id_to_window_id.get(&pid).and_then(|tid| live_windows.get(tid)).and_then(|w| w.window.as_ref())
+    });
+
+    win.create(event_loop, owner_window, parent_window)?;
+
+    if let Some(wid) = win.window_id {
+        let our_id = win.id;
+        id_to_window_id.insert(our_id, wid);
+        live_windows.insert(wid, win);
+        if let Some((cb, ctx_usize)) = created_cb {
+            if let Some(win_ref) = live_windows.get_mut(&wid) {
+                cb(*ctx_usize as *mut c_void, our_id, win_ref as *mut WryWindow);
+            }
+        }
+    }
+    Ok(())
+}
+
 // ===========================================================================
 // EXPORTED C API
 // ===========================================================================
@@ -753,6 +834,12 @@ pub extern "C" fn wry_app_new() -> *mut WryApp {
         trays: HashMap::new(),
         next_tray_id: 1,
         exit_requested_handler: None,
+        run_started: Arc::new(AtomicBool::new(false)),
+        dynamic_window_queue: Arc::new(Mutex::new(Vec::new())),
+        main_thread_id: None,
+        window_created_handler: None,
+        window_creation_error_handler: None,
+        window_destroyed_handler: None,
     };
     Box::into_raw(Box::new(app))
 }
@@ -765,6 +852,8 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
         return;
     }
     let app = unsafe { &mut *app };
+    app.main_thread_id = Some(thread::current().id());
+
     let mut event_loop = match app.event_loop.take() {
         Some(el) => el,
         None => return, // already consumed
@@ -785,6 +874,12 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
 
     // Exit-requested callback (fired when all windows are closed).
     let exit_requested_handler = app.exit_requested_handler.take();
+    let window_created_handler = app.window_created_handler.take();
+    let window_creation_error_handler = app.window_creation_error_handler.take();
+    let window_destroyed_handler = app.window_destroyed_handler.take();
+
+    let run_started = app.run_started.clone();
+    let dynamic_window_queue = app.dynamic_window_queue.clone();
 
     // Wire up tray icon / menu event handlers to forward into the event loop.
     tray::setup_tray_event_handlers(&app.proxy);
@@ -792,6 +887,16 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
     // Use run_return so we return to the caller instead of calling process::exit.
     event_loop.run_return(move |event, event_loop_target, control_flow| {
         *control_flow = ControlFlow::Wait;
+        run_started.store(true, Ordering::SeqCst);
+
+        // Set thread-local so wry_window_new can create synchronously when called from main thread (e.g. from Dispatch).
+        MAIN_LOOP_CTX.with(|cell| {
+            *cell.borrow_mut() = Some(MainLoopCtx {
+                event_loop: event_loop_target as *const _,
+                live_windows: &mut live_windows as *mut _,
+                id_to_window_id: &mut id_to_window_id as *mut _,
+            });
+        });
 
         match event {
             Event::NewEvents(StartCause::Init) => {
@@ -806,11 +911,27 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                         id_to_window_id.get(&pid).and_then(|tid| live_windows.get(tid))
                             .and_then(|w| w.window.as_ref())
                     });
-                    win.create(event_loop_target, owner_window, parent_window);
-                    if let Some(wid) = win.window_id {
-                        let our_id = win.id;
-                        id_to_window_id.insert(our_id, wid);
-                        live_windows.insert(wid, win);
+                    match win.create(event_loop_target, owner_window, parent_window) {
+                        Ok(()) => {
+                            if let Some(wid) = win.window_id {
+                                let our_id = win.id;
+                                id_to_window_id.insert(our_id, wid);
+                                live_windows.insert(wid, win);
+                                if let Some((cb, ctx)) = window_created_handler.as_ref() {
+                                    if let Some(win_ref) = live_windows.get_mut(&wid) {
+                                        cb(*ctx as *mut c_void, our_id, win_ref as *mut WryWindow);
+                                    }
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            let our_id = win.id;
+                            if let Some((cb, ctx)) = window_creation_error_handler.as_ref() {
+                                if let Ok(c_msg) = CString::new(e.as_str()) {
+                                    cb(*ctx as *mut c_void, our_id, c_msg.as_ptr());
+                                }
+                            }
+                        }
                     }
                 }
                 // Materialize all pending tray icons.
@@ -838,6 +959,30 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                                 true
                             };
                             if allow {
+                                let our_id = win.id;
+                                id_to_window_id.remove(&our_id);
+                                live_windows.remove(&window_id);
+                                if live_windows.is_empty() {
+                                    let should_exit = if let Some((cb, ctx)) = exit_requested_handler {
+                                        cb(false, 0, ctx as *mut c_void)
+                                    } else {
+                                        true
+                                    };
+                                    if should_exit {
+                                        live_trays.clear();
+                                        *control_flow = ControlFlow::Exit;
+                                    }
+                                }
+                            }
+                        }
+                        WindowEvent::Destroyed => {
+                            // Window was destroyed (e.g. by OS when owner closed). Notify C#, then remove from state like Tauri.
+                            let our_id = live_windows.get(&window_id).map(|w| w.id);
+                            if let Some(oid) = our_id {
+                                if let Some((cb, ctx)) = window_destroyed_handler.as_ref() {
+                                    cb(*ctx as *mut c_void, oid);
+                                }
+                                id_to_window_id.remove(&oid);
                                 live_windows.remove(&window_id);
                                 if live_windows.is_empty() {
                                     let should_exit = if let Some((cb, ctx)) = exit_requested_handler {
@@ -961,6 +1106,41 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                         *control_flow = ControlFlow::Exit;
                     }
                 }
+
+                UserEvent::CreateWindow => {
+                    if let Some(mut win) = dynamic_window_queue.lock().ok().and_then(|mut q| q.pop()) {
+                        let owner_window = win.pending_owner_window_id.and_then(|oid| {
+                            id_to_window_id.get(&oid).and_then(|tid| live_windows.get(tid))
+                                .and_then(|w| w.window.as_ref())
+                        });
+                        let parent_window = win.pending_parent_window_id.and_then(|pid| {
+                            id_to_window_id.get(&pid).and_then(|tid| live_windows.get(tid))
+                                .and_then(|w| w.window.as_ref())
+                        });
+                        match win.create(event_loop_target, owner_window, parent_window) {
+                            Ok(()) => {
+                                if let Some(wid) = win.window_id {
+                                    let our_id = win.id;
+                                    id_to_window_id.insert(our_id, wid);
+                                    live_windows.insert(wid, win);
+                                    if let Some((cb, ctx)) = window_created_handler.as_ref() {
+                                        if let Some(win_ref) = live_windows.get_mut(&wid) {
+                                            cb(*ctx as *mut c_void, our_id, win_ref as *mut WryWindow);
+                                        }
+                                    }
+                                }
+                            }
+                            Err(e) => {
+                                let our_id = win.id;
+                                if let Some((cb, ctx)) = window_creation_error_handler.as_ref() {
+                                    if let Ok(c_msg) = CString::new(e.as_str()) {
+                                        cb(*ctx as *mut c_void, our_id, c_msg.as_ptr());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
             },
 
             _ => {}
@@ -982,6 +1162,46 @@ pub extern "C" fn wry_app_on_exit_requested(
     if app.is_null() { return; }
     let app = unsafe { &mut *app };
     app.exit_requested_handler = Some((callback, ctx as usize));
+}
+
+/// Register a callback that fires when a window has been materialized and is live.
+/// Called for both initial windows (at startup) and dynamically created windows.
+/// Signature: fn(ctx: *mut c_void, window_id: usize, window_ptr: *mut WryWindow).
+#[no_mangle]
+pub extern "C" fn wry_app_on_window_created(
+    app: *mut WryApp,
+    callback: WindowCreatedCallback,
+    ctx: *mut c_void,
+) {
+    if app.is_null() { return; }
+    let app = unsafe { &mut *app };
+    app.window_created_handler = Some((callback, ctx as usize));
+}
+
+/// Register a callback that fires when dynamic window creation fails (async path only).
+/// Signature: fn(ctx: *mut c_void, window_id: usize, error_message: *const c_char). error_message is UTF-8.
+#[no_mangle]
+pub extern "C" fn wry_app_on_window_creation_error(
+    app: *mut WryApp,
+    callback: WindowCreationErrorCallback,
+    ctx: *mut c_void,
+) {
+    if app.is_null() { return; }
+    let app = unsafe { &mut *app };
+    app.window_creation_error_handler = Some((callback, ctx as usize));
+}
+
+/// Register a callback that fires when a window has been destroyed (platform Destroyed event).
+/// Signature: fn(ctx: *mut c_void, window_id: usize).
+#[no_mangle]
+pub extern "C" fn wry_app_on_window_destroyed(
+    app: *mut WryApp,
+    callback: WindowDestroyedCallback,
+    ctx: *mut c_void,
+) {
+    if app.is_null() { return; }
+    let app = unsafe { &mut *app };
+    app.window_destroyed_handler = Some((callback, ctx as usize));
 }
 
 /// Request the application to exit with the given exit code.
@@ -1009,19 +1229,77 @@ pub extern "C" fn wry_app_destroy(app: *mut WryApp) {
 // Window creation
 // ---------------------------------------------------------------------------
 
-/// Create a new window handle. The window is not visible until `wry_app_run()`
-/// is called. Returns an opaque window ID (not a pointer) that is used in
-/// subsequent calls. Returns 0 on failure.
+/// Create a new window handle. Before run: window is created when the event loop starts.
+/// After run: if called on the main thread (e.g. from a Dispatch callback), the window is
+/// created synchronously; otherwise it is queued and created on the main thread (async path).
+/// Returns an opaque window ID, or 0 on failure (e.g. sync creation failed).
 #[no_mangle]
 pub extern "C" fn wry_window_new(app: *mut WryApp) -> usize {
+    wry_window_new_with_owner(app, 0)
+}
+
+/// Like `wry_window_new`, but the new window is created as owned by `owner_window_id`.
+/// Pass 0 for no owner. Owner must be an existing window id (e.g. the main window).
+#[no_mangle]
+pub extern "C" fn wry_window_new_with_owner(app: *mut WryApp, owner_window_id: usize) -> usize {
     if app.is_null() {
         return 0;
     }
     let app = unsafe { &mut *app };
     let id = app.next_window_id;
     app.next_window_id += 1;
-    let win = WryWindow::new(id);
-    app.windows.insert(id, win);
+    let mut win = WryWindow::new(id);
+    if owner_window_id != 0 {
+        win.pending_owner_window_id = Some(owner_window_id);
+        win.pending_parent_window_id = None;
+    }
+
+    if !app.run_started.load(Ordering::SeqCst) {
+        app.windows.insert(id, win);
+        return id;
+    }
+
+    // Run started: sync on main thread, else queue for async creation.
+    let on_main = app.main_thread_id.map(|tid| thread::current().id() == tid).unwrap_or(false);
+    if on_main {
+        let (result, win_for_queue) = MAIN_LOOP_CTX.with(|cell| {
+            if let Some(ctx) = cell.borrow().as_ref() {
+                let created_cb = app.window_created_handler.as_ref();
+                let r = unsafe { do_create_one_window_sync(ctx, win, created_cb) };
+                (Some(r), None)
+            } else {
+                (None, Some(win))
+            }
+        });
+        match result {
+            Some(Ok(())) => return id,
+            Some(Err(e)) => {
+                if let Some((cb, ctx)) = app.window_creation_error_handler.as_ref() {
+                    if let Ok(c_msg) = CString::new(e.as_str()) {
+                        cb(*ctx as *mut c_void, id, c_msg.as_ptr());
+                    }
+                }
+                return 0;
+            }
+            None => {
+                if let Some(w) = win_for_queue {
+                    if let Ok(mut q) = app.dynamic_window_queue.lock() {
+                        q.push(w);
+                        drop(q);
+                        let _ = app.proxy.send_event(UserEvent::CreateWindow);
+                    }
+                }
+                return id;
+            }
+        }
+    }
+
+    // Async path: queue and send event.
+    if let Ok(mut q) = app.dynamic_window_queue.lock() {
+        q.push(win);
+        drop(q);
+        let _ = app.proxy.send_event(UserEvent::CreateWindow);
+    }
     id
 }
 

@@ -13,6 +13,7 @@ For full documentation, source code, and samples, see the [GitHub repository](ht
 | Typed RPC | C# service methods marked with `[BridgeService]` are auto-generated as fully typed TypeScript functions. Call .NET methods from the frontend with full IntelliSense and compile-time type checking. |
 | Async/Await | `Task<T>` and `ValueTask<T>` return types are unwrapped to `Promise<T>` in TypeScript. Synchronous methods become regular async calls. |
 | Cancellation | Long-running .NET calls can be cancelled from JavaScript. `CancellationToken` parameters are auto-injected on the C# side and stripped from the generated TypeScript signature. Timeouts (default 30s) also trigger cancellation. |
+| Call context | Declare `CallContext` as a parameter to receive the window that sent the current call (e.g. for parenting dialogs or window-specific logic). Injected when declared, not supplied from JS. |
 | Events | .NET services push data to JavaScript via `bridge.Emit()`. The generator produces typed subscription helpers (`on`, `once`, `off`) for each `[BridgeEvent]` class. |
 | Model Generation | C# classes and structs used in service signatures are generated as TypeScript interfaces with accurate property types. |
 | Inheritance | C# class inheritance hierarchies are preserved using TypeScript `extends`. Only declared properties are emitted per level (no duplication). |
@@ -38,6 +39,19 @@ For full documentation, source code, and samples, see the [GitHub repository](ht
 | `[BridgeEvent("name")]` | Class | Declares a typed event payload pushed from .NET to JS |
 
 Standard `System.Text.Json` attributes (`[JsonPropertyName]`, `[JsonIgnore]`) are also respected in generated models.
+
+## Call context
+
+For multi-window apps, methods can receive the calling window by declaring `CallContext` as a parameter (Wails-style "inject when declared"). It is not supplied from JavaScript and does not appear in generated TypeScript.
+
+```csharp
+public string GetTitle(CallContext ctx)
+{
+    return ctx.Window?.Title ?? "";
+}
+```
+
+Use this to parent dialogs to the correct window or implement window-specific behaviour.
 
 ## Cancellation
 

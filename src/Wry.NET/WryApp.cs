@@ -39,6 +39,23 @@ public sealed class WryApp : IDisposable
     /// </summary>
     public event EventHandler<ExitRequestedEventArgs>? ExitRequested;
 
+    /// <summary>
+    /// Raised when a window has been materialized and is live (initial or dynamic).
+    /// Use this to run logic when a dynamically created window is ready.
+    /// </summary>
+    public event EventHandler<WindowCreatedEventArgs>? WindowCreated;
+
+    /// <summary>
+    /// Raised when dynamic window creation fails (async path). The window id and error message are provided.
+    /// </summary>
+    public event EventHandler<WindowCreationErrorEventArgs>? WindowCreationError;
+
+    /// <summary>
+    /// Raised when any window has been destroyed (platform Destroyed event).
+    /// For per-window subscription, use <see cref="WryWindow.WindowDestroyed"/> instead.
+    /// </summary>
+    public event EventHandler<WindowDestroyedEventArgs>? WindowDestroyed;
+
     public WryApp()
     {
         Handle = NativeMethods.wry_app_new();
@@ -52,14 +69,26 @@ public sealed class WryApp : IDisposable
     /// </summary>
     public WryWindow CreateWindow()
     {
+        return CreateWindow(owner: null);
+    }
+
+    /// <summary>
+    /// Create a new window owned by <paramref name="owner"/> (e.g. so it stays on top of the owner and closes with it).
+    /// Pass null for a top-level window.
+    /// </summary>
+    public WryWindow CreateWindow(WryWindow? owner)
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        var id = NativeMethods.wry_window_new(Handle);
+        var id = owner is null
+            ? NativeMethods.wry_window_new(Handle)
+            : NativeMethods.wry_window_new_with_owner(Handle, owner.Id);
         if (id == 0)
             throw new InvalidOperationException("Failed to create native window.");
 
         var window = new WryWindow(this, id);
         _windows.Add(window);
+        window.RegisterNativeCallbacks();
         return window;
     }
 
@@ -103,9 +132,15 @@ public sealed class WryApp : IDisposable
         delegate* unmanaged[Cdecl]<byte, int, nint, byte> fp = &ExitRequestedBridge;
         NativeMethods.wry_app_on_exit_requested(Handle, (nint)fp, GCHandle.ToIntPtr(_gcHandle));
 
-        // Queue dispatches to capture native pointers after Init.
-        foreach (var window in _windows)
-            window.QueuePointerCapture();
+        // Register window-created and creation-error callbacks (for initial and dynamic windows).
+        delegate* unmanaged[Cdecl]<nint, nuint, nint, void> onCreated = &WindowCreatedBridge;
+        NativeMethods.wry_app_on_window_created(Handle, (nint)onCreated, GCHandle.ToIntPtr(_gcHandle));
+        delegate* unmanaged[Cdecl]<nint, nuint, nint, void> onError = &WindowCreationErrorBridge;
+        NativeMethods.wry_app_on_window_creation_error(Handle, (nint)onError, GCHandle.ToIntPtr(_gcHandle));
+        delegate* unmanaged[Cdecl]<nint, nuint, void> onDestroyed = &WindowDestroyedBridge;
+        NativeMethods.wry_app_on_window_destroyed(Handle, (nint)onDestroyed, GCHandle.ToIntPtr(_gcHandle));
+
+        // Queue dispatches to capture native pointers after Init (trays only; windows use window_created callback).
         foreach (var tray in _trays)
             tray.QueuePointerCapture();
 
@@ -181,5 +216,53 @@ public sealed class WryApp : IDisposable
             return (byte)(args.Cancel ? 0 : 1); // 1 = allow exit, 0 = prevent
         }
         return 1; // allow exit by default
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void WindowCreatedBridge(nint ctx, nuint windowId, nint windowPtr)
+    {
+        if (ctx == 0 || windowPtr == 0) return;
+        var handle = GCHandle.FromIntPtr(ctx);
+        if (handle.Target is WryApp app)
+        {
+            WryWindow? window = null;
+            foreach (var w in app.Windows)
+            {
+                if (w.Id == windowId) { window = w; break; }
+            }
+            if (window is not null)
+            {
+                window.SetNativePtr(windowPtr);
+                app.WindowCreated?.Invoke(app, new WindowCreatedEventArgs(window));
+            }
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void WindowCreationErrorBridge(nint ctx, nuint windowId, nint errorMessagePtr)
+    {
+        if (ctx == 0) return;
+        var handle = GCHandle.FromIntPtr(ctx);
+        if (handle.Target is WryApp app)
+        {
+            var message = errorMessagePtr != 0 ? Marshal.PtrToStringUTF8(errorMessagePtr) ?? "" : "";
+            app.WindowCreationError?.Invoke(app, new WindowCreationErrorEventArgs(windowId, message));
+        }
+    }
+
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static void WindowDestroyedBridge(nint ctx, nuint windowId)
+    {
+        if (ctx == 0) return;
+        var handle = GCHandle.FromIntPtr(ctx);
+        if (handle.Target is not WryApp app) return;
+
+        WryWindow? window = null;
+        foreach (var w in app.Windows)
+        {
+            if (w.Id == windowId) { window = w; break; }
+        }
+        window?.OnWindowDestroyed();
+        app.WindowDestroyed?.Invoke(app, new WindowDestroyedEventArgs(windowId, window));
     }
 }

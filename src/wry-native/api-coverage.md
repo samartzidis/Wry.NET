@@ -3,7 +3,7 @@
 This document describes what the **wry-native** C API exposes. Desktop only (Windows, Linux, macOS).
 
 - **wry 0.54** — WebView/window API; ~60–70% of wry’s public API covered below.
-- **App lifecycle** — Exit-requested callback and programmatic exit.
+- **App lifecycle** — Exit-requested callback, programmatic exit, window-created and window-creation-error callbacks; dynamic window creation (sync on main thread, async via queue).
 - **tray-icon 0.21** — System tray icons and context menus; coverage table below.
 - **rfd 0.17** — Native dialogs (message, ask, confirm, open, save); coverage table below.
 
@@ -106,7 +106,11 @@ This document describes what the **wry-native** C API exposes. Desktop only (Win
 |----------|-----|------------|
 | **App** | Create / run / destroy | `wry_app_new`, `wry_app_run`, `wry_app_destroy` |
 | **App** | Exit requested callback | `wry_app_on_exit_requested` - fires when all windows close or on `wry_app_exit`; callback receives `has_code` + `code`, returns bool (allow/prevent) |
+| **App** | Window created callback | `wry_app_on_window_created` - fires when a window is materialized and live (initial or dynamic); callback receives `ctx`, `window_id`, `window_ptr` |
+| **App** | Window creation error callback | `wry_app_on_window_creation_error` - fires when dynamic window creation fails (async path); callback receives `ctx`, `window_id`, `error_message` (UTF-8) |
+| **App** | Window destroyed callback | `wry_app_on_window_destroyed` - fires when a window has been destroyed (platform Destroyed event); callback receives `ctx`, `window_id` |
 | **App** | Programmatic exit | `wry_app_exit(app, code)` - request exit from any thread; fires exit-requested callback with the code |
+| **Window** | Dynamic creation | `wry_window_new` after run: if called on main thread (e.g. from a Dispatch), window is created synchronously; otherwise queued and created on main thread. Returns 0 on sync creation failure. |
 
 ## tray-icon API coverage (tray-icon 0.21)
 

@@ -24,6 +24,15 @@ internal static partial class NativeMethods
     internal static partial void wry_app_on_exit_requested(nint app, nint callback, nint ctx);
 
     [LibraryImport(LibName)]
+    internal static partial void wry_app_on_window_created(nint app, nint callback, nint ctx);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_app_on_window_creation_error(nint app, nint callback, nint ctx);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_app_on_window_destroyed(nint app, nint callback, nint ctx);
+
+    [LibraryImport(LibName)]
     internal static partial void wry_app_exit(nint app, int code);
 
     [LibraryImport(LibName)]
@@ -35,6 +44,9 @@ internal static partial class NativeMethods
 
     [LibraryImport(LibName)]
     internal static partial nuint wry_window_new(nint app);
+
+    [LibraryImport(LibName)]
+    internal static partial nuint wry_window_new_with_owner(nint app, nuint ownerWindowId);
 
     // -----------------------------------------------------------------------
     // Navigation & JS interop (pre-run: app + windowId)

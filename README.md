@@ -35,6 +35,7 @@ Its portability relies on .NET rather than in producing different native target 
 - **Auto-generated bindings** — services, models, enums, and events are generated as `.ts` files on build
 - **Async/Await** — `Task<T>` / `ValueTask<T>` unwrap to `Promise<T>` in TypeScript
 - **Cancellation** — cancel long-running .NET calls from JavaScript with `CancellationToken` auto-injection
+- **Call context** — declare `CallContext` to receive the calling window in service methods (multi-window, parenting)
 - **Events** — push typed events from .NET to JavaScript via `bridge.Emit()`
 - **Single-file publishing** — embed frontend assets into the executable and serve via custom URI scheme
 - **System tray icons** — cross-platform tray icons with context menus, click events, and dynamic icon updates

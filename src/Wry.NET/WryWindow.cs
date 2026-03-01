@@ -74,6 +74,11 @@ public sealed class WryWindow
     /// </summary>
     public event EventHandler<DragDropEventArgs>? DragDrop;
 
+    /// <summary>
+    /// Raised when this window has been destroyed (platform Destroyed event - e.g. user closed it or OS destroyed it with its owner).
+    /// </summary>
+    public event EventHandler<EventArgs>? WindowDestroyed;
+
     // =======================================================================
     // Properties (set before app.Run() to configure; getters available post-run)
     // =======================================================================
@@ -876,10 +881,22 @@ public sealed class WryWindow
         NativeMethods.wry_window_dispatch(_app.Handle, _windowId, (nint)fp, GCHandlePtr);
     }
 
+    /// <summary>Called when the window is materialized (by native window_created callback or pointer capture).</summary>
+    internal void SetNativePtr(nint ptr)
+    {
+        _nativePtr = ptr;
+    }
+
     /// <summary>Called by WryApp after Run() returns.</summary>
     internal void OnAppRunCompleted()
     {
         _nativePtr = 0;
+    }
+
+    /// <summary>Raises WindowDestroyed. Called from the native bridge when the platform reports the window destroyed.</summary>
+    internal void OnWindowDestroyed()
+    {
+        WindowDestroyed?.Invoke(this, EventArgs.Empty);
     }
 
     /// <summary>Free the GCHandle. Called by WryApp.Dispose().</summary>

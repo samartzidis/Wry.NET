@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -16,7 +17,7 @@ public class WryBridge
 {
     private readonly Dictionary<string, RegisteredService> _services = new();
     private readonly ILogger<WryBridge> _logger;
-    private WryWindow? _window;
+    private readonly List<WryWindow> _attachedWindows = [];
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -65,15 +66,21 @@ public class WryBridge
 
     /// <summary>
     /// Attach this bridge to a WryWindow. Registers the IPC message handler
-    /// and an init script for C#→JS messaging.
-    /// Must be called before <see cref="WryApp.Run"/>.
+    /// and an init script for C#→JS messaging. Can be called for multiple windows;
+    /// responses are routed back to the window that sent the request, and
+    /// <see cref="Emit"/> broadcasts to all attached windows.
+    /// Must be called before <see cref="WryApp.Run"/> (or before the window is created for dynamic windows).
     /// </summary>
     public void Attach(WryWindow window)
     {
-        _window = window;
+        lock (_attachedWindows)
+        {
+            if (_attachedWindows.Contains(window))
+                return;
+            _attachedWindows.Add(window);
+        }
 
         // Register the init script that sets up the C#→JS message receiver.
-        // This creates window.__bridge_receive which we call via EvalJs.
         window.AddInitScript("""
             (function() {
                 const listeners = [];
@@ -90,15 +97,30 @@ public class WryBridge
             })();
             """);
 
-        // Subscribe to IPC messages from JS
         window.IpcMessageReceived += (sender, e) => HandleMessage(sender, e.Message);
+        window.WindowDestroyed += OnAttachedWindowDestroyed;
+    }
+
+    private void OnAttachedWindowDestroyed(object? sender, EventArgs _)
+    {
+        if (sender is WryWindow w)
+        {
+            w.WindowDestroyed -= OnAttachedWindowDestroyed;
+            lock (_attachedWindows)
+            {
+                _attachedWindows.Remove(w);
+            }
+        }
     }
 
     /// <summary>
     /// Message handler. Handles both call requests and cancel requests.
+    /// Responses are sent back to the window that sent the message.
     /// </summary>
     public async void HandleMessage(object? sender, string rawMessage)
     {
+        var sourceWindow = sender as WryWindow;
+
         // Try to detect cancel messages first (they have a "cancel" field)
         if (TryHandleCancelMessage(rawMessage))
             return;
@@ -130,15 +152,22 @@ public class WryBridge
 
             try
             {
-                // Build arguments from JSON, injecting CancellationToken where needed
+                // Build arguments from JSON, injecting CallContext and CancellationToken when declared
                 var parameters = method.GetParameters();
                 var args = new object?[parameters.Length];
                 int jsonArgIndex = 0;
+                var callContext = new CallContext(sourceWindow);
 
                 for (int i = 0; i < parameters.Length; i++)
                 {
+                    var paramType = parameters[i].ParameterType;
+                    // Inject call context when parameter is CallContext (Wails-style "inject when declared")
+                    if (paramType == typeof(CallContext))
+                    {
+                        args[i] = callContext;
+                    }
                     // Auto-inject CancellationToken — not supplied from JS
-                    if (parameters[i].ParameterType == typeof(CancellationToken))
+                    else if (paramType == typeof(CancellationToken))
                     {
                         args[i] = cts.Token;
                     }
@@ -162,7 +191,7 @@ public class WryBridge
                 var rawResult = method.Invoke(service.Instance, args);
                 var result = await UnwrapAsyncResult(rawResult);
 
-                SendResponse(new BridgeResponse
+                SendResponse(sourceWindow, new BridgeResponse
                 {
                     CallId = request.CallId,
                     Result = result
@@ -172,7 +201,7 @@ public class WryBridge
             {
                 // Call was cancelled by the JS side — send a specific error
                 _logger.LogDebug("Call '{Method}' ({CallId}) was cancelled", request.Method, request.CallId);
-                SendResponse(new BridgeResponse
+                SendResponse(sourceWindow, new BridgeResponse
                 {
                     CallId = request.CallId,
                     Error = new BridgeError
@@ -199,7 +228,7 @@ public class WryBridge
             if (error is OperationCanceledException)
             {
                 _logger.LogDebug("Call '{Method}' ({CallId}) was cancelled", request?.Method, request?.CallId);
-                SendResponse(new BridgeResponse
+                SendResponse(sourceWindow, new BridgeResponse
                 {
                     CallId = request?.CallId ?? "",
                     Error = new BridgeError
@@ -213,7 +242,7 @@ public class WryBridge
 
             _logger.LogError(error, "Error handling '{Method}'", request?.Method);
 
-            SendResponse(new BridgeResponse
+            SendResponse(sourceWindow, new BridgeResponse
             {
                 CallId = request?.CallId ?? "",
                 Error = new BridgeError
@@ -304,7 +333,7 @@ public class WryBridge
     }
 
     /// <summary>
-    /// Emit an event to the JS frontend. This is a fire-and-forget push message.
+    /// Emit an event to the JS frontend in all attached windows. Fire-and-forget.
     /// Can be called from any thread — automatically dispatches to the UI thread.
     /// </summary>
     /// <param name="eventName">The event name (matches the JS <c>events.on(name, cb)</c> subscription).</param>
@@ -312,44 +341,42 @@ public class WryBridge
     public void Emit(string eventName, object? data = null)
     {
         var msg = new BridgeEventMessage { Event = eventName, Data = data };
-        SendToJs(JsonSerializer.Serialize(msg, JsonOptions));
+        var json = JsonSerializer.Serialize(msg, JsonOptions);
+        lock (_attachedWindows)
+        {
+            foreach (var w in _attachedWindows)
+                SendToJs(w, json);
+        }
     }
 
     /// <summary>
-    /// Sends a JSON response to the JS frontend. Dispatches to the UI thread
-    /// via wry's dispatch mechanism for thread safety.
+    /// Sends a JSON response to the window that sent the request.
     /// </summary>
-    private void SendResponse(BridgeResponse response)
+    private void SendResponse(WryWindow? targetWindow, BridgeResponse response)
     {
-        SendToJs(JsonSerializer.Serialize(response, JsonOptions));
+        SendToJs(targetWindow, JsonSerializer.Serialize(response, JsonOptions));
     }
 
     /// <summary>
-    /// Low-level: sends a raw JSON string to JS via EvalJs, dispatching to the
-    /// UI thread. Uses the __bridge_receive function injected by the init script.
+    /// Sends a raw JSON string to a specific window's JS via EvalJs.
     /// </summary>
-    private void SendToJs(string json)
+    private void SendToJs(WryWindow? window, string json)
     {
-        if (_window is not { } win) return;
+        if (window is not { } win || !win.IsLive) return;
 
-        // Escape for embedding in a JS string literal
         var escaped = json.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n").Replace("\r", "\\r");
 
-        if (win.IsLive)
+        win.Dispatch(w =>
         {
-            // Post-run: dispatch to UI thread, then eval
-            win.Dispatch(w =>
+            try
             {
-                try
-                {
-                    w.EvalJs($"window.__bridge_receive('{escaped}')");
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to send message via EvalJs");
-                }
-            });
-        }
+                w.EvalJs($"window.__bridge_receive('{escaped}')");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send message via EvalJs");
+            }
+        });
     }
 
     private sealed record RegisteredService(object Instance, Dictionary<string, MethodInfo> Methods);

@@ -22,16 +22,20 @@ static class ServiceDiscovery
             var methods = new List<MethodDef>();
             foreach (var method in type.GetMethods(BindingFlags.Public | BindingFlags.Instance | BindingFlags.DeclaredOnly))
             {
-                if (method.IsSpecialName) continue;
-                if (method.CustomAttributes.Any(a => a.AttributeType.Name == "BridgeIgnoreAttribute")) continue;
+                if (method.IsSpecialName) 
+                    continue;
+                    
+                if (method.CustomAttributes.Any(a => a.AttributeType.Name == "BridgeIgnoreAttribute")) 
+                    continue;
 
                 var returnType = TypeMapper.UnwrapTaskType(method.ReturnType);
                 var isAsync = TypeMapper.IsTaskType(method.ReturnType);
 
-                // Filter out CancellationToken parameters — they are auto-injected
-                // by the bridge dispatcher and should not appear in the TS signature.
+                // Filter out injected parameters — CallContext and CancellationToken are
+                // auto-injected by the bridge and must not appear in the TS signature.
                 var parameters = method.GetParameters()
-                    .Where(p => p.ParameterType.FullName != "System.Threading.CancellationToken")
+                    .Where(p => p.ParameterType.Name != "CallContext"
+                        && p.ParameterType.FullName != "System.Threading.CancellationToken")
                     .Select(p => new ParamDef(p.Name ?? $"arg{p.Position}", p.ParameterType))
                     .ToList();
 
