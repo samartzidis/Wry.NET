@@ -1,5 +1,5 @@
 using System.Text.Json.Serialization;
-using Wry.Bridge;
+using Wry.NET.Bridge;
 
 namespace SampleApp.Services;
 

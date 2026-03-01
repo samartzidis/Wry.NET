@@ -19,7 +19,7 @@ Cargo.lock
 **/wwwroot/
 **/dist/
 
-# Wry.Bridge build output - bindings and runtime (copied/generated on dotnet build)
+# Wry.NET.Bridge build output - bindings and runtime (copied/generated on dotnet build)
 **/frontend/src/bindings/*.ts
 .npm/
 .pnpm-store/

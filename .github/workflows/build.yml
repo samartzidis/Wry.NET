@@ -13,7 +13,7 @@ env:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # Test: run .NET unit tests (Wry.Bridge.Generator.Tests)
+  # Test: run .NET unit tests (Wry.NET.Bridge.Generator.Tests)
   # ---------------------------------------------------------------------------
   test:
     runs-on: windows-latest
@@ -29,7 +29,7 @@ jobs:
           dotnet-version: '8.0.x'
 
       - name: Test
-        run: dotnet test tests/Wry.Bridge.Generator.Tests/Wry.Bridge.Generator.Tests.csproj -c Release --verbosity normal
+        run: dotnet test tests/Wry.NET.Bridge.Generator.Tests/Wry.NET.Bridge.Generator.Tests.csproj -c Release --verbosity normal
 
   # ---------------------------------------------------------------------------
   # Matrix build: compile the cdylib on each platform
@@ -139,8 +139,8 @@ jobs:
       - name: Pack Wry.NET
         run: dotnet pack src/Wry.NET/Wry.NET.csproj -c Release -o artifacts
 
-      - name: Pack Wry.Bridge
-        run: dotnet pack src/Wry.Bridge/Wry.Bridge.csproj -c Release -o artifacts
+      - name: Pack Wry.NET.Bridge
+        run: dotnet pack src/Wry.NET.Bridge/Wry.NET.Bridge.csproj -c Release -o artifacts
 
       - name: Upload NuGet package
         uses: actions/upload-artifact@v4

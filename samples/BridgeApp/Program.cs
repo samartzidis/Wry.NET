@@ -1,6 +1,6 @@
 using System.Reflection;
 using Microsoft.Extensions.Logging;
-using Wry.Bridge;
+using Wry.NET.Bridge;
 using SampleApp.Services;
 using Wry.NET;
 

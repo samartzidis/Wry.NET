@@ -19,16 +19,16 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\Wry.Bridge\Wry.Bridge.csproj" />
+    <ProjectReference Include="..\..\src\Wry.NET.Bridge\Wry.NET.Bridge.csproj" />
   </ItemGroup>
 
   <!--
-    Import shared build targets from Wry.Bridge.
+    Import shared build targets from Wry.NET.Bridge.
     NuGet consumers get this automatically; with ProjectReference we import it explicitly.
     Binding generation is skipped (NuGet-specific path); we run it locally below.
     Frontend build, copy, runtime.ts copy, and embedding are handled by the shared targets.
   -->
-  <Import Project="..\..\src\Wry.Bridge\build\Wry.Bridge.targets" />
+  <Import Project="..\..\src\Wry.NET.Bridge\build\Wry.NET.Bridge.targets" />
 
   <!--
     Run the binding generator from source (instead of the NuGet-packaged tool).
@@ -36,7 +36,7 @@
     generated TypeScript bindings are available when Vite builds.
   -->
   <Target Name="GenerateBindings" AfterTargets="Build" BeforeTargets="WryBridgeBuildFrontend">
-    <Exec Command="dotnet run --project ..\..\src\Wry.Bridge.Generator\Wry.Bridge.Generator.csproj -- &quot;$(TargetPath)&quot; &quot;frontend\src\bindings&quot;" />
+    <Exec Command="dotnet run --project ..\..\src\Wry.NET.Bridge.Generator\Wry.NET.Bridge.Generator.csproj -- &quot;$(TargetPath)&quot; &quot;frontend\src\bindings&quot;" />
   </Target>
 
   <ItemGroup>

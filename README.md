@@ -14,7 +14,7 @@
 
 ---
 
-**Wry.NET** is a managed .NET wrapper around a Rust native library that provides cross-platform webview windows using [wry](https://github.com/tauri-apps/wry) (WebView2 on Windows, WebKit on macOS/Linux) and [tao](https://github.com/tauri-apps/tao) (windowing). It then includes **Wry.Bridge**, a typed RPC bridge with auto-generated TypeScript bindings for building desktop apps with various web frontends.
+**Wry.NET** is a managed .NET wrapper around a Rust native library that provides cross-platform webview windows using [wry](https://github.com/tauri-apps/wry) (WebView2 on Windows, WebKit on macOS/Linux) and [tao](https://github.com/tauri-apps/tao) (windowing). It then includes **Wry.NET.Bridge**, a typed RPC bridge with auto-generated TypeScript bindings for building desktop apps with various web frontends.
 
 Build single executable desktop applications using .NET and your favourite web technology of choice. Mark your C# backend code with `[BridgeService]`, run `dotnet build`, and get fully typed TypeScript functions with IntelliSense — no manual binding code, no code generators to run separately.
 
@@ -48,8 +48,8 @@ Its portability relies on .NET rather than in producing different native target 
 |---------|----------------|
 | **wry-native** | Rust cdylib exposing a C API for wry (webview) + tao (windowing) + tray-icon (system tray). Consumed by Wry.NET via P/Invoke. For a detailed mapping of the wry 0.54.1 API to the wry-native C API, see [src/wry-native/api-coverage.md](src/wry-native/api-coverage.md). |
 | **[Wry.NET](src/Wry.NET/README.md)** | Managed .NET 8 wrapper: P/Invoke bindings, events, and window lifecycle. NuGet: `Wry.NET`. |
-| **[Wry.Bridge](src/Wry.Bridge/README.md)** | Typed RPC bridge: C# services callable from TypeScript with auto-generated bindings. NuGet: `Wry.Bridge`. Depends on Wry.NET. |
-| **Wry.Bridge.Generator** | CLI that generates TypeScript from `[BridgeService]` assemblies. Used at build time by Wry.Bridge. |
+| **[Wry.NET.Bridge](src/Wry.NET.Bridge/README.md)** | Typed RPC bridge: C# services callable from TypeScript with auto-generated bindings. NuGet: `Wry.NET.Bridge`. Depends on Wry.NET. |
+| **Wry.NET.Bridge.Generator** | CLI that generates TypeScript from `[BridgeService]` assemblies. Used at build time by Wry.NET.Bridge. |
 
 ## Quick Start
 
@@ -66,7 +66,7 @@ cd MyWryApp
 
 ```shell
 dotnet add package Wry.NET
-dotnet add package Wry.Bridge
+dotnet add package Wry.NET.Bridge
 ```
 
 ### 3. Scaffold a Vite + React + TypeScript frontend
@@ -107,7 +107,7 @@ export default defineConfig({
 
 ```csharp
 using System.Reflection;
-using Wry.Bridge;
+using Wry.NET.Bridge;
 using Wry.NET;
 
 namespace MyWryApp;
@@ -243,8 +243,7 @@ Set these MSBuild properties in your `.csproj`:
 
 | Property | Default | Description |
 |---|---|---|
-| `WryBridgeRuntimeDir` | `frontend\src\bridge` | Where `runtime.ts` is placed |
-| `WryBridgeOutputDir` | `frontend\src\bindings` | Where generated bindings go |
+| `WryBridgeOutputDir` | `frontend\src\bindings` | Where `runtime.ts` and generated bindings go |
 | `WryBridgeSkipTypescriptRuntimeCopy` | `false` | Skip copying `runtime.ts` |
 | `WryBridgeSkipBindingGeneration` | `false` | Skip binding generation |
 | `WryBridgeSkipFrontendBuild` | `false` | Skip `npm install` / `npm run build` |
@@ -263,11 +262,11 @@ dotnet build samples/BridgeApp/BridgeApp.csproj
 cd src/wry-native && cargo build --release
 
 # Run tests
-dotnet test tests/Wry.Bridge.Generator.Tests/Wry.Bridge.Generator.Tests.csproj
+dotnet test tests/Wry.NET.Bridge.Generator.Tests/Wry.NET.Bridge.Generator.Tests.csproj
 
 # Pack NuGet packages
 dotnet pack src/Wry.NET/Wry.NET.csproj -c Release -o nupkg
-dotnet pack src/Wry.Bridge/Wry.Bridge.csproj -c Release -o nupkg
+dotnet pack src/Wry.NET.Bridge/Wry.NET.Bridge.csproj -c Release -o nupkg
 ```
 
 ## Requirements
