@@ -5,16 +5,6 @@
 //! via P/Invoke, but works from any language with C FFI.
 //!
 //! # Usage pattern ("Configure, Run, Respond")
-//!
-//! 1. Call `wry_app_new()` to create the application.
-//! 2. Call `wry_window_new(app)` to create a window handle.
-//! 3. Configure the window with `wry_window_set_*` calls.
-//! 4. Register callbacks with `wry_window_on_*` / `wry_window_set_ipc_handler`.
-//! 5. Call `wry_app_run(app)` -- this blocks the main thread.
-//! 6. Inside callbacks, call `wry_window_*` methods directly (same thread).
-//! 7. From background threads, use `wry_window_dispatch()` to marshal to main.
-//! 8. When the last window closes, `wry_app_run()` returns.
-//! 9. Call `wry_app_destroy(app)` to free resources.
 
 #![allow(clippy::missing_safety_doc)]
 
