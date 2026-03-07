@@ -152,6 +152,12 @@ public sealed class WryWindowCreateOptions
 
     /// <summary>Custom window class name. Null = default. Windows only.</summary>
     public string? WindowClassname { get; set; }
+
+    /// <summary>
+    /// Hooks invoked with the live window when it is materialized, before the user's onCreated callback.
+    /// Extensions use this to auto-attach behavior at creation time.
+    /// </summary>
+    public List<Action<WryWindow>>? WindowCreatedActions { get; set; }
 }
 
 /// <summary>
@@ -194,17 +200,6 @@ public sealed class WryApp : IDisposable
     /// automatically.
     /// </summary>
     public event EventHandler<ExitRequestedEventArgs>? ExitRequested;
-
-    /// <summary>
-    /// Raised when a window has been materialized and is live (initial or dynamic).
-    /// Use this to run logic when a dynamically created window is ready.
-    /// </summary>
-    public event EventHandler<WindowCreatedEventArgs>? WindowCreated;
-
-    /// <summary>
-    /// Raised when dynamic window creation fails (async path). The window id and error message are provided.
-    /// </summary>
-    public event EventHandler<WindowCreationErrorEventArgs>? WindowCreationError;
 
     /// <summary>
     /// Raised when any window has been destroyed (platform Destroyed event).
@@ -426,6 +421,18 @@ public sealed class WryApp : IDisposable
         if (pinnedProtocolHandles != null)
             window.AddPinnedProtocolHandles(pinnedProtocolHandles);
 
+        if (options.WindowCreatedActions is { Count: > 0 } hooks)
+        {
+            var userCallback = onCreated;
+            var capturedHooks = hooks.ToArray();
+            onCreated = w =>
+            {
+                foreach (var hook in capturedHooks)
+                    hook(w);
+                userCallback?.Invoke(w);
+            };
+        }
+
         _onCreatedCallbacks[id] = onCreated;
         _onErrorCallbacks[id] = onError;
     }
@@ -577,13 +584,10 @@ public sealed class WryApp : IDisposable
             if (window is not null)
             {
                 window.SetNativePtr(windowPtr);
-                window.OnWindowCreated();
 
                 if (app._onCreatedCallbacks.Remove(windowId, out var cb) && cb is not null)
                     cb(window);
                 app._onErrorCallbacks.Remove(windowId);
-
-                app.WindowCreated?.Invoke(app, new WindowCreatedEventArgs(window));
             }
         }
     }
@@ -600,8 +604,6 @@ public sealed class WryApp : IDisposable
             if (app._onErrorCallbacks.Remove(windowId, out var cb) && cb is not null)
                 cb(message);
             app._onCreatedCallbacks.Remove(windowId);
-
-            app.WindowCreationError?.Invoke(app, new WindowCreationErrorEventArgs(windowId, message));
         }
     }
 

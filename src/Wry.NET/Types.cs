@@ -216,34 +216,6 @@ public sealed class ExitRequestedEventArgs : EventArgs
 }
 
 /// <summary>
-/// Event args raised when a window has been materialized and is live (initial or dynamic).
-/// </summary>
-public sealed class WindowCreatedEventArgs : EventArgs
-{
-    /// <summary>The window that became live.</summary>
-    public WryWindow Window { get; }
-
-    internal WindowCreatedEventArgs(WryWindow window) => Window = window;
-}
-
-/// <summary>
-/// Event args raised when dynamic window creation fails (async path).
-/// </summary>
-public sealed class WindowCreationErrorEventArgs : EventArgs
-{
-    /// <summary>Window id that failed to create.</summary>
-    public nuint WindowId { get; }
-    /// <summary>Error message from the native layer.</summary>
-    public string Message { get; }
-
-    internal WindowCreationErrorEventArgs(nuint windowId, string message)
-    {
-        WindowId = windowId;
-        Message = message ?? "";
-    }
-}
-
-/// <summary>
 /// Event args raised when a window has been destroyed (platform Destroyed event).
 /// </summary>
 public sealed class WindowDestroyedEventArgs : EventArgs

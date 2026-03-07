@@ -62,8 +62,8 @@ public static class WryWindowExtensions
     }
 
     /// <summary>
-    /// Adds this bridge's init script to the window options so the bridge is active when the window is created.
-    /// Call before <see cref="WryApp.CreateWindow(WryWindow?, WryWindowCreateOptions?)"/>, then call <see cref="WryBridge.Attach"/> after creation.
+    /// Adds this bridge's init script to the window options and registers a created-hook that
+    /// automatically calls <see cref="WryBridge.Attach"/> when the window materializes.
     /// </summary>
     public static void AddBridge(this WryWindowCreateOptions options, WryBridge bridge)
     {
@@ -71,5 +71,7 @@ public static class WryWindowExtensions
         ArgumentNullException.ThrowIfNull(bridge);
         options.InitScripts ??= [];
         options.InitScripts.Add(WryBridge.GetBridgeInitScript());
+        options.WindowCreatedActions ??= [];
+        options.WindowCreatedActions.Add(bridge.Attach);
     }
 }

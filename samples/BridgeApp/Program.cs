@@ -61,7 +61,6 @@ namespace SampleApp
 
             app.CreateWindow(options: options, onCreated: window =>
             {
-                bridge.Attach(window);
                 window.PageLoad += (_, e) =>
                 {
                     if (e.Event == WryPageLoadEvent.Finished)
@@ -94,7 +93,6 @@ namespace SampleApp
                             childOptions.AddBridge(bridge);
                             app.CreateWindow(owner: window, options: childOptions, onCreated: child =>
                             {
-                                bridge.Attach(child);
                                 child.PageLoad += (_, pe) =>
                                 {
                                     if (pe.Event == WryPageLoadEvent.Finished)

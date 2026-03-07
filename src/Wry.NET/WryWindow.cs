@@ -115,11 +115,6 @@ public sealed class WryWindow
     public event EventHandler<DragDropEventArgs>? DragDrop;
 
     /// <summary>
-    /// Raised when this window has been materialized and is live (same moment as <see cref="WryApp.WindowCreated"/> for this window).
-    /// </summary>
-    public event EventHandler<EventArgs>? WindowCreated;
-
-    /// <summary>
     /// Raised when this window has been destroyed (platform Destroyed event - e.g. user closed it or OS destroyed it with its owner).
     /// </summary>
     public event EventHandler<EventArgs>? WindowDestroyed;
@@ -568,12 +563,6 @@ public sealed class WryWindow
     internal void OnAppRunCompleted()
     {
         _nativePtr = 0;
-    }
-
-    /// <summary>Raises WindowDestroyed. Called from the native bridge when the platform reports the window destroyed.</summary>
-    internal void OnWindowCreated()
-    {
-        WindowCreated?.Invoke(this, EventArgs.Empty);
     }
 
     internal void OnWindowDestroyed()
