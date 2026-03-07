@@ -38,6 +38,9 @@ public sealed class WryWindowCreateOptions
 
     /// <summary>Path to window icon image file (PNG, ICO, JPEG, BMP, GIF). Windows and Linux only; macOS uses .app bundle icon.</summary>
     public string? IconPath { get; set; }
+
+    /// <summary>JavaScript init scripts injected before page load. Add scripts here instead of calling AddInitScript after creation.</summary>
+    public List<string>? InitScripts { get; set; }
 }
 
 /// <summary>
@@ -127,16 +130,18 @@ public sealed class WryApp : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        nuint id;
-
         if (options is null)
         {
             options = new WryWindowCreateOptions { DataDirectory = GetDefaultDataDirectory() };
         }
 
+        var window = new WryWindow(this);
+        _windows.Add(window);
+
         List<GCHandle>? pinnedProtocolHandles = null;
         byte[]? iconBytes = null;
         GCHandle iconHandle = default;
+        nuint id;
         {
             var ownerId = owner?.Id ?? 0u;
             var dataDir = options.DataDirectory ?? GetDefaultDataDirectory();
@@ -144,6 +149,8 @@ public sealed class WryApp : IDisposable
             nint protocolsPtr = 0;
             int protocolCount = 0;
             var schemePtrsToFree = new List<nint>();
+            nint initScriptsArrayPtr = 0;
+            var initScriptPtrs = new List<nint>();
 
             if (!string.IsNullOrEmpty(options.IconPath) && File.Exists(options.IconPath))
             {
@@ -187,6 +194,23 @@ public sealed class WryApp : IDisposable
                     }
                 }
 
+                int initScriptCount = 0;
+                if (options.InitScripts is { Count: > 0 } scripts)
+                {
+                    foreach (var script in scripts)
+                    {
+                        if (string.IsNullOrEmpty(script)) continue;
+                        initScriptPtrs.Add(Marshal.StringToCoTaskMemUTF8(script));
+                    }
+                    initScriptCount = initScriptPtrs.Count;
+                    if (initScriptCount > 0)
+                    {
+                        initScriptsArrayPtr = Marshal.AllocHGlobal(initScriptCount * nint.Size);
+                        for (var i = 0; i < initScriptCount; i++)
+                            Marshal.WriteIntPtr(initScriptsArrayPtr, i * nint.Size, initScriptPtrs[i]);
+                    }
+                }
+
                 var config = new NativeMethods.WryWindowConfigNative
                 {
                     Title = titlePtr,
@@ -200,7 +224,10 @@ public sealed class WryApp : IDisposable
                     DefaultContextMenus = options.DefaultContextMenus ? 1 : 0,
                     IconData = iconHandle.IsAllocated ? iconHandle.AddrOfPinnedObject() : 0,
                     IconDataLen = iconBytes?.Length ?? 0,
+                    InitScriptCount = initScriptCount,
+                    InitScripts = initScriptsArrayPtr,
                 };
+                WryWindow.PopulateCallbacks(ref config, window.GCHandlePtr);
                 id = NativeMethods.wry_window_create(Handle, ownerId, 0, (nint)(&config));
             }
             finally
@@ -213,17 +240,18 @@ public sealed class WryApp : IDisposable
                     if (p != 0) Marshal.FreeCoTaskMem(p);
                 if (protocolsPtr != 0) Marshal.FreeHGlobal(protocolsPtr);
                 if (iconHandle.IsAllocated) iconHandle.Free();
+                foreach (var p in initScriptPtrs)
+                    if (p != 0) Marshal.FreeCoTaskMem(p);
+                if (initScriptsArrayPtr != 0) Marshal.FreeHGlobal(initScriptsArrayPtr);
             }
         }
 
         if (id == 0)
             throw new InvalidOperationException("Failed to create native window.");
 
-        var window = new WryWindow(this, id);
+        window.SetWindowId(id);
         if (pinnedProtocolHandles != null)
             window.AddPinnedProtocolHandles(pinnedProtocolHandles);
-        _windows.Add(window);
-        window.RegisterNativeCallbacks();
         return window;
     }
 
@@ -265,9 +293,7 @@ public sealed class WryApp : IDisposable
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        // Register native callbacks for all windows and tray icons.
-        foreach (var window in _windows)
-            window.RegisterNativeCallbacks();
+        // Register native callbacks for tray icons (window callbacks are passed at create time).
         foreach (var tray in _trays)
             tray.RegisterNativeCallbacks();
 

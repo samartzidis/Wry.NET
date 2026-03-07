@@ -11,10 +11,12 @@ namespace Wry.NET;
 public sealed class WryWindow
 {
     private readonly WryApp _app;
-    private readonly nuint _windowId;
+    private nuint _windowId;
     private nint _nativePtr; // set once the window is materialized in the event loop
     private GCHandle _gcHandle;
     private List<GCHandle>? _pinnedProtocolHandles; // keeps protocol handler delegates alive when set at create time
+    private bool _preventOverflow;
+    private (int Left, int Top, int Right, int Bottom) _preventOverflowMargin;
 
     /// <summary>Function pointer to ProtocolBridge for use when passing protocols in WryWindowCreateOptions.</summary>
     internal static unsafe nint GetProtocolBridgePointer()
@@ -30,15 +32,45 @@ public sealed class WryWindow
         _pinnedProtocolHandles.AddRange(handles);
     }
 
-    internal WryWindow(WryApp app, nuint windowId)
+    internal WryWindow(WryApp app)
     {
         _app = app;
-        _windowId = windowId;
         _gcHandle = GCHandle.Alloc(this);
-        // Data directory and other creation options are set via WryWindowCreateOptions when the window is created.
     }
 
-    private nint GCHandlePtr => GCHandle.ToIntPtr(_gcHandle);
+    internal void SetWindowId(nuint id) => _windowId = id;
+
+    /// <summary>Populate callback function pointers and context on a config struct.</summary>
+    internal static unsafe void PopulateCallbacks(ref NativeMethods.WryWindowConfigNative config, nint ctx)
+    {
+        delegate* unmanaged[Cdecl]<nint, nint, nint, void> ipcFp = &IpcBridge;
+        delegate* unmanaged[Cdecl]<nint, byte> closeFp = &CloseBridge;
+        delegate* unmanaged[Cdecl]<int, int, nint, void> resizeFp = &ResizeBridge;
+        delegate* unmanaged[Cdecl]<int, int, nint, void> moveFp = &MoveBridge;
+        delegate* unmanaged[Cdecl]<byte, nint, void> focusFp = &FocusBridge;
+        delegate* unmanaged[Cdecl]<nint, nint, byte> navFp = &NavigationBridge;
+        delegate* unmanaged[Cdecl]<int, nint, nint, void> plFp = &PageLoadBridge;
+        delegate* unmanaged[Cdecl]<int, nint, int, int, int, nint, byte> ddFp = &DragDropBridge;
+
+        config.IpcHandler = (nint)ipcFp;
+        config.IpcHandlerCtx = ctx;
+        config.CloseHandler = (nint)closeFp;
+        config.CloseHandlerCtx = ctx;
+        config.ResizeHandler = (nint)resizeFp;
+        config.ResizeHandlerCtx = ctx;
+        config.MoveHandler = (nint)moveFp;
+        config.MoveHandlerCtx = ctx;
+        config.FocusHandler = (nint)focusFp;
+        config.FocusHandlerCtx = ctx;
+        config.NavigationHandler = (nint)navFp;
+        config.NavigationHandlerCtx = ctx;
+        config.PageLoadHandler = (nint)plFp;
+        config.PageLoadHandlerCtx = ctx;
+        config.DragDropHandler = (nint)ddFp;
+        config.DragDropHandlerCtx = ctx;
+    }
+
+    internal nint GCHandlePtr => GCHandle.ToIntPtr(_gcHandle);
 
     /// <summary>Whether the native window has been materialized (post-run).</summary>
     public bool IsLive => _nativePtr != 0;
@@ -271,16 +303,17 @@ public sealed class WryWindow
         set => NativeMethods.wry_window_set_focusable(_nativePtr, value);
     }
 
-    /// <summary>Keep window within current monitor when moved or resized. Can be set before or after Run (use dispatch for post-run).</summary>
+    /// <summary>Keep window within current monitor bounds when moved or resized.</summary>
     public bool PreventOverflow
     {
-        set => NativeMethods.wry_window_set_prevent_overflow(_nativePtr, value);
+        get => _preventOverflow;
+        set => _preventOverflow = value;
     }
 
-    /// <summary>Set prevent_overflow margin in physical pixels (left, top, right, bottom). Use (0,0,0,0) for no margin.</summary>
+    /// <summary>Set prevent-overflow margin in physical pixels (left, top, right, bottom). Use (0,0,0,0) for no margin.</summary>
     public void SetPreventOverflowMargin(int left, int top, int right, int bottom)
     {
-        NativeMethods.wry_window_set_prevent_overflow_margin(_nativePtr, left, top, right, bottom);
+        _preventOverflowMargin = (left, top, right, bottom);
     }
 
     /// <summary>Set the webview zoom level (1.0 = 100%).</summary>
@@ -348,48 +381,6 @@ public sealed class WryWindow
         ArgumentNullException.ThrowIfNull(filePath);
         var bytes = File.ReadAllBytes(filePath);
         SetIcon(bytes);
-    }
-
-    // =======================================================================
-    // Pre-run methods
-    // =======================================================================
-
-    /// <summary>Add a JavaScript initialization script that runs before page load.</summary>
-    public void AddInitScript(string js)
-    {
-        NativeMethods.wry_window_add_init_script(_app.Handle, _windowId, js);
-    }
-
-    /// <summary>
-    /// Register a custom protocol handler. When the webview navigates to
-    /// {scheme}://..., the handler is invoked with a <see cref="ProtocolRequest"/>
-    /// containing the URL, method, headers, and body, and must return a
-    /// <see cref="ProtocolResponse"/>.
-    /// Must be called before <see cref="WryApp.Run"/>.
-    /// </summary>
-    public unsafe void AddCustomProtocol(string scheme, Func<ProtocolRequest, ProtocolResponse> handler)
-    {
-        // Pin the handler so it survives across native calls.
-        var handle = GCHandle.Alloc(handler);
-        var ctx = GCHandle.ToIntPtr(handle);
-
-        delegate* unmanaged[Cdecl]<nint, nint, nint, nint, int, nint, nint, void> fp = &ProtocolBridge;
-        NativeMethods.wry_window_add_custom_protocol(_app.Handle, _windowId, scheme, (nint)fp, ctx);
-
-        // Note: the GCHandle is intentionally never freed — it must live for the
-        // lifetime of the window. It will be collected when the process exits.
-        // A more sophisticated implementation could track and free these.
-    }
-
-    /// <summary>
-    /// Register a custom protocol handler (simplified overload). When the webview
-    /// navigates to {scheme}://..., the handler is invoked with the URL string and
-    /// must return a <see cref="ProtocolResponse"/>.
-    /// Must be called before <see cref="WryApp.Run"/>.
-    /// </summary>
-    public void AddCustomProtocol(string scheme, Func<string, ProtocolResponse> handler)
-    {
-        AddCustomProtocol(scheme, (ProtocolRequest req) => handler(req.Url));
     }
 
     /// <summary>Center the window on the primary monitor.</summary>
@@ -510,6 +501,42 @@ public sealed class WryWindow
     }
 
     // =======================================================================
+    // Prevent overflow (clamp window to current monitor)
+    // =======================================================================
+
+    private MonitorInfo? FindCurrentMonitor(int pointX, int pointY)
+    {
+        var monitors = GetAllMonitors();
+        foreach (var m in monitors)
+        {
+            if (pointX >= m.X && pointX < m.X + m.Width &&
+                pointY >= m.Y && pointY < m.Y + m.Height)
+                return m;
+        }
+        return monitors.Count > 0 ? monitors[0] : null;
+    }
+
+    private void ApplyPreventOverflow()
+    {
+        if (!_preventOverflow) return;
+        NativeMethods.wry_window_get_size(_nativePtr, out var winW, out var winH);
+        NativeMethods.wry_window_get_position(_nativePtr, out var winX, out var winY);
+        var monitor = FindCurrentMonitor(winX + winW / 2, winY + winH / 2);
+        if (monitor is not { } m) return;
+        var (ml, mt, mr, mb) = _preventOverflowMargin;
+        int left = m.X + ml;
+        int top = m.Y + mt;
+        int right = m.X + m.Width - mr;
+        int bottom = m.Y + m.Height - mb;
+        int maxX = Math.Max(right - winW, left);
+        int maxY = Math.Max(bottom - winH, top);
+        int newX = Math.Clamp(winX, left, maxX);
+        int newY = Math.Clamp(winY, top, maxY);
+        if (newX != winX || newY != winY)
+            NativeMethods.wry_window_set_position(_nativePtr, newX, newY);
+    }
+
+    // =======================================================================
     // Cross-thread dispatch
     // =======================================================================
 
@@ -528,55 +555,8 @@ public sealed class WryWindow
     }
 
     // =======================================================================
-    // Internal: callback registration & pointer capture
+    // Internal: pointer capture
     // =======================================================================
-
-    /// <summary>Register native event callbacks. Called by WryApp before Run().</summary>
-    internal unsafe void RegisterNativeCallbacks()
-    {
-        var ctx = GCHandlePtr;
-
-        if (IpcMessageReceived is not null || true) // always register so events can be attached later
-        {
-            delegate* unmanaged[Cdecl]<nint, nint, nint, void> ipcFp = &IpcBridge;
-            NativeMethods.wry_window_set_ipc_handler(_app.Handle, _windowId, (nint)ipcFp, ctx);
-        }
-
-        {
-            delegate* unmanaged[Cdecl]<nint, byte> closeFp = &CloseBridge;
-            NativeMethods.wry_window_on_close(_app.Handle, _windowId, (nint)closeFp, ctx);
-        }
-
-        {
-            delegate* unmanaged[Cdecl]<int, int, nint, void> resizeFp = &ResizeBridge;
-            NativeMethods.wry_window_on_resize(_app.Handle, _windowId, (nint)resizeFp, ctx);
-        }
-
-        {
-            delegate* unmanaged[Cdecl]<int, int, nint, void> moveFp = &MoveBridge;
-            NativeMethods.wry_window_on_move(_app.Handle, _windowId, (nint)moveFp, ctx);
-        }
-
-        {
-            delegate* unmanaged[Cdecl]<byte, nint, void> focusFp = &FocusBridge;
-            NativeMethods.wry_window_on_focus(_app.Handle, _windowId, (nint)focusFp, ctx);
-        }
-
-        {
-            delegate* unmanaged[Cdecl]<nint, nint, byte> navFp = &NavigationBridge;
-            NativeMethods.wry_window_set_navigation_handler(_app.Handle, _windowId, (nint)navFp, ctx);
-        }
-
-        {
-            delegate* unmanaged[Cdecl]<int, nint, nint, void> plFp = &PageLoadBridge;
-            NativeMethods.wry_window_set_page_load_handler(_app.Handle, _windowId, (nint)plFp, ctx);
-        }
-
-        {
-            delegate* unmanaged[Cdecl]<int, nint, int, int, int, nint, byte> ddFp = &DragDropBridge;
-            NativeMethods.wry_window_on_drag_drop(_app.Handle, _windowId, (nint)ddFp, ctx);
-        }
-    }
 
     /// <summary>Queue a dispatch to capture the native WryWindow pointer after Init.</summary>
     internal unsafe void QueuePointerCapture()
@@ -661,14 +641,20 @@ public sealed class WryWindow
     private static void ResizeBridge(int width, int height, nint ctx)
     {
         if (Recover(ctx) is { } win)
+        {
+            win.ApplyPreventOverflow();
             win.Resized?.Invoke(win, new SizeChangedEventArgs(width, height));
+        }
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
     private static void MoveBridge(int x, int y, nint ctx)
     {
         if (Recover(ctx) is { } win)
+        {
+            win.ApplyPreventOverflow();
             win.Moved?.Invoke(win, new PositionChangedEventArgs(x, y));
+        }
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]

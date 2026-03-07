@@ -38,7 +38,9 @@ namespace SampleApp
             if (File.Exists(iconPath))
                 options.IconPath = iconPath;
 
-            // Create the Wry.NET application and window with options (content loads from URL + protocol)
+            // Inject bridge init script into the window options before creation
+            bridge.PrepareWindowOptions(options);
+
             using var app = new WryApp();
             var window = app.CreateWindow(null, options);
 
@@ -47,7 +49,6 @@ namespace SampleApp
                 
             };
 
-            // Attach the bridge (registers IPC handler + init script shims)
             bridge.Attach(window);
 
             // Hide window until first page load finishes to avoid white flash

@@ -72,6 +72,26 @@ internal static partial class NativeMethods
         internal int DefaultContextMenus; // 0 = false, non-zero = true. Windows only.
         internal nint IconData; // pointer to image file bytes (PNG, ICO, etc.)
         internal int IconDataLen;
+        internal int InitScriptCount;
+        internal nint InitScripts; // *const *const c_char (array of UTF-8 string pointers)
+
+        // Event callbacks: function pointer + opaque context. 0 = not set.
+        internal nint IpcHandler;
+        internal nint IpcHandlerCtx;
+        internal nint CloseHandler;
+        internal nint CloseHandlerCtx;
+        internal nint ResizeHandler;
+        internal nint ResizeHandlerCtx;
+        internal nint MoveHandler;
+        internal nint MoveHandlerCtx;
+        internal nint FocusHandler;
+        internal nint FocusHandlerCtx;
+        internal nint NavigationHandler;
+        internal nint NavigationHandlerCtx;
+        internal nint PageLoadHandler;
+        internal nint PageLoadHandlerCtx;
+        internal nint DragDropHandler;
+        internal nint DragDropHandlerCtx;
     }
 
     /// <summary>
@@ -88,48 +108,14 @@ internal static partial class NativeMethods
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial void wry_window_eval_js(nint win, string js);
 
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_window_add_init_script(nint app, nuint windowId, string js);
-
     // -----------------------------------------------------------------------
-    // Callback registration (pre-run) — function pointers passed as nint
+    // Protocol response (post-run)
     // -----------------------------------------------------------------------
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_ipc_handler(nint app, nuint windowId, nint callback, nint ctx);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_window_add_custom_protocol(nint app, nuint windowId, string scheme, nint callback, nint ctx);
 
     [LibraryImport(LibName)]
     internal static partial void wry_protocol_respond(nint responder, nint data, int dataLen,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string contentType, int statusCode,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string? extraHeaders);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_on_close(nint app, nuint windowId, nint callback, nint ctx);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_on_resize(nint app, nuint windowId, nint callback, nint ctx);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_on_move(nint app, nuint windowId, nint callback, nint ctx);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_on_focus(nint app, nuint windowId, nint callback, nint ctx);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_on_drag_drop(nint app, nuint windowId, nint callback, nint ctx);
-
-    // -----------------------------------------------------------------------
-    // Navigation & page load handlers (pre-run)
-    // -----------------------------------------------------------------------
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_navigation_handler(nint app, nuint windowId, nint callback, nint ctx);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_page_load_handler(nint app, nuint windowId, nint callback, nint ctx);
 
     // -----------------------------------------------------------------------
     // Evaluate JS with callback (post-run, via WryWindow pointer)
@@ -137,12 +123,6 @@ internal static partial class NativeMethods
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial void wry_window_eval_js_callback(nint win, string js, nint callback, nint ctx);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_prevent_overflow(nint win, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_prevent_overflow_margin(nint win, int left, int top, int right, int bottom);
 
     [LibraryImport(LibName)]
     internal static partial void wry_window_set_icon(nint win, nint rgba, int rgbaLen, int width, int height);

@@ -92,18 +92,6 @@ internal sealed class EmbeddedAssetServer
         EntryUrl = $"{scheme}://localhost/{entryFile}";
     }
 
-    /// <summary>
-    /// Registers the custom protocol handler on the WryWindow.
-    /// Call this before <c>WryApp.Run()</c>.
-    /// </summary>
-    /// <param name="window">The WryWindow to register the handler on.</param>
-    /// <returns>The window, for fluent chaining.</returns>
-    public WryWindow Register(WryWindow window)
-    {
-        window.AddCustomProtocol(_scheme, HandleSchemeRequest);
-        return window;
-    }
-
     /// <summary>Handler for create-time protocol registration (ProtocolRequest -> ProtocolResponse).</summary>
     public ProtocolResponse HandleRequest(ProtocolRequest request) => HandleSchemeRequest(request.Url);
 

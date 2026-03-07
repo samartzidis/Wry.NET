@@ -64,12 +64,38 @@ public class WryBridge
         return this;
     }
 
+    private const string BridgeInitScript = """
+        (function() {
+            const listeners = [];
+            window.__bridge_receive = function(raw) {
+                for (const cb of listeners) cb(raw);
+            };
+            window.external = window.external || {};
+            window.external.receiveMessage = function(cb) {
+                listeners.push(cb);
+            };
+            window.external.sendMessage = function(msg) {
+                window.ipc.postMessage(msg);
+            };
+        })();
+        """;
+
+    /// <summary>
+    /// Add the bridge init script to <paramref name="options"/> so it is injected when the window is created.
+    /// Call before <see cref="WryApp.CreateWindow(WryWindow?, WryWindowCreateOptions?)"/>.
+    /// </summary>
+    public void PrepareWindowOptions(WryWindowCreateOptions options)
+    {
+        options.InitScripts ??= [];
+        options.InitScripts.Add(BridgeInitScript);
+    }
+
     /// <summary>
     /// Attach this bridge to a WryWindow. Registers the IPC message handler
-    /// and an init script for C#→JS messaging. Can be called for multiple windows;
-    /// responses are routed back to the window that sent the request, and
+    /// and event subscriptions. The bridge init script must already be in the
+    /// window's create options via <see cref="PrepareWindowOptions"/>.
+    /// Responses are routed back to the window that sent the request, and
     /// <see cref="Emit"/> broadcasts to all attached windows.
-    /// Must be called before <see cref="WryApp.Run"/> (or before the window is created for dynamic windows).
     /// </summary>
     public void Attach(WryWindow window)
     {
@@ -79,23 +105,6 @@ public class WryBridge
                 return;
             _attachedWindows.Add(window);
         }
-
-        // Register the init script that sets up the C#→JS message receiver.
-        window.AddInitScript("""
-            (function() {
-                const listeners = [];
-                window.__bridge_receive = function(raw) {
-                    for (const cb of listeners) cb(raw);
-                };
-                window.external = window.external || {};
-                window.external.receiveMessage = function(cb) {
-                    listeners.push(cb);
-                };
-                window.external.sendMessage = function(msg) {
-                    window.ipc.postMessage(msg);
-                };
-            })();
-            """);
 
         window.IpcMessageReceived += (sender, e) => HandleMessage(sender, e.Message);
         window.WindowDestroyed += OnAttachedWindowDestroyed;
