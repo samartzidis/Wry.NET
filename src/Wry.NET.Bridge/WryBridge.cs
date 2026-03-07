@@ -364,17 +364,14 @@ public class WryBridge
 
         var escaped = json.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n").Replace("\r", "\\r");
 
-        win.Dispatch(w =>
+        try
         {
-            try
-            {
-                w.EvalJs($"window.__bridge_receive('{escaped}')");
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to send message via EvalJs");
-            }
-        });
+            win.EvalJs($"window.__bridge_receive('{escaped}')");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to send message via EvalJs");
+        }
     }
 
     private sealed record RegisteredService(object Instance, Dictionary<string, MethodInfo> Methods);

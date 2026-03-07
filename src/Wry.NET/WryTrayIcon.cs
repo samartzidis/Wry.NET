@@ -3,33 +3,6 @@ using System.Runtime.InteropServices;
 
 namespace Wry.NET;
 
-/// <summary>
-/// A system tray icon. Configure properties and attach event handlers before
-/// calling <see cref="WryApp.Run"/>. Post-run operations (from events or
-/// dispatch) are available after the event loop starts.
-/// </summary>
-/// <example>
-/// <code>
-/// using var app = new WryApp();
-/// var tray = app.CreateTrayIcon();
-/// tray.Tooltip = "My App";
-/// tray.SetIconFromBytes(File.ReadAllBytes("icon.png"));
-///
-/// var menu = new WryTrayMenu();
-/// menu.AddItem("open", "Open");
-/// menu.AddSeparator();
-/// menu.AddItem("quit", "Quit");
-/// tray.Menu = menu;
-///
-/// tray.MenuItemClicked += (s, e) =&gt;
-/// {
-///     if (e.ItemId == "quit")
-///         tray.Remove();
-/// };
-///
-/// app.Run();
-/// </code>
-/// </example>
 public sealed class WryTrayIcon
 {
     private readonly WryApp _app;
@@ -75,7 +48,7 @@ public sealed class WryTrayIcon
         {
             if (value is null) return;
             if (IsLive)
-                NativeMethods.wry_tray_set_tooltip_direct(_nativePtr, value);
+                RunOnMainThread(t => NativeMethods.wry_tray_set_tooltip_direct(t._nativePtr, value));
             else
                 NativeMethods.wry_tray_set_tooltip(_app.Handle, _trayId, value);
         }
@@ -88,7 +61,7 @@ public sealed class WryTrayIcon
         {
             if (value is null) return;
             if (IsLive)
-                NativeMethods.wry_tray_set_title_direct(_nativePtr, value);
+                RunOnMainThread(t => NativeMethods.wry_tray_set_title_direct(t._nativePtr, value));
             else
                 NativeMethods.wry_tray_set_title(_app.Handle, _trayId, value);
         }
@@ -104,7 +77,7 @@ public sealed class WryTrayIcon
         {
             var handle = value?.ConsumeHandle() ?? 0;
             if (IsLive)
-                NativeMethods.wry_tray_set_menu_direct(_nativePtr, handle);
+                RunOnMainThread(t => NativeMethods.wry_tray_set_menu_direct(t._nativePtr, handle));
             else
                 NativeMethods.wry_tray_set_menu(_app.Handle, _trayId, handle);
         }
@@ -119,7 +92,7 @@ public sealed class WryTrayIcon
         set
         {
             if (IsLive)
-                NativeMethods.wry_tray_set_menu_on_left_click_direct(_nativePtr, value);
+                RunOnMainThread(t => NativeMethods.wry_tray_set_menu_on_left_click_direct(t._nativePtr, value));
             else
                 NativeMethods.wry_tray_set_menu_on_left_click(_app.Handle, _trayId, value);
         }
@@ -131,7 +104,7 @@ public sealed class WryTrayIcon
         set
         {
             if (IsLive)
-                NativeMethods.wry_tray_set_visible_direct(_nativePtr, value);
+                RunOnMainThread(t => NativeMethods.wry_tray_set_visible_direct(t._nativePtr, value));
             else
                 NativeMethods.wry_tray_set_visible(_app.Handle, _trayId, value);
         }
@@ -146,7 +119,7 @@ public sealed class WryTrayIcon
         set
         {
             if (IsLive)
-                NativeMethods.wry_tray_set_icon_as_template_direct(_nativePtr, value);
+                RunOnMainThread(t => NativeMethods.wry_tray_set_icon_as_template_direct(t._nativePtr, value));
             else
                 NativeMethods.wry_tray_set_icon_as_template(_app.Handle, _trayId, value);
         }
@@ -164,11 +137,18 @@ public sealed class WryTrayIcon
     /// <param name="height">Image height in pixels.</param>
     public unsafe void SetIcon(byte[] rgba, int width, int height)
     {
-        fixed (byte* ptr = rgba)
+        if (IsLive)
         {
-            if (IsLive)
-                NativeMethods.wry_tray_set_icon_direct(_nativePtr, (nint)ptr, rgba.Length, width, height);
-            else
+            var copy = (byte[])rgba.Clone();
+            RunOnMainThread(t =>
+            {
+                fixed (byte* ptr = copy)
+                    NativeMethods.wry_tray_set_icon_direct(t._nativePtr, (nint)ptr, copy.Length, width, height);
+            });
+        }
+        else
+        {
+            fixed (byte* ptr = rgba)
                 NativeMethods.wry_tray_set_icon(_app.Handle, _trayId, (nint)ptr, rgba.Length, width, height);
         }
     }
@@ -180,11 +160,18 @@ public sealed class WryTrayIcon
     /// <param name="data">Encoded image file bytes.</param>
     public unsafe void SetIconFromBytes(byte[] data)
     {
-        fixed (byte* ptr = data)
+        if (IsLive)
         {
-            if (IsLive)
-                NativeMethods.wry_tray_set_icon_from_bytes_direct(_nativePtr, (nint)ptr, data.Length);
-            else
+            var copy = (byte[])data.Clone();
+            RunOnMainThread(t =>
+            {
+                fixed (byte* ptr = copy)
+                    NativeMethods.wry_tray_set_icon_from_bytes_direct(t._nativePtr, (nint)ptr, copy.Length);
+            });
+        }
+        else
+        {
+            fixed (byte* ptr = data)
                 NativeMethods.wry_tray_set_icon_from_bytes(_app.Handle, _trayId, (nint)ptr, data.Length);
         }
     }
@@ -193,12 +180,17 @@ public sealed class WryTrayIcon
     // Cross-thread dispatch
     // =======================================================================
 
-    /// <summary>
-    /// Dispatch an action to run on the event loop (main) thread.
-    /// Safe to call from any thread. The action receives this tray icon
-    /// and can call post-run methods on it.
-    /// </summary>
-    public unsafe void Dispatch(Action<WryTrayIcon> action)
+    private bool IsOnMainThread => Environment.CurrentManagedThreadId == _app.MainThreadId;
+
+    private void RunOnMainThread(Action<WryTrayIcon> action)
+    {
+        if (IsOnMainThread)
+            action(this);
+        else
+            Dispatch(action);
+    }
+
+    internal unsafe void Dispatch(Action<WryTrayIcon> action)
     {
         var captured = (Tray: this, Action: action);
         var handle = GCHandle.Alloc(captured);
@@ -266,7 +258,7 @@ public sealed class WryTrayIcon
         if (!IsLive)
             throw new InvalidOperationException(
                 $"Cannot call {caller} before the tray icon is live. " +
-                "Use this method from an event handler or Dispatch callback after WryApp.Run() starts.");
+                "Use this method from an event handler after WryApp.Run() starts.");
     }
 
     // =======================================================================

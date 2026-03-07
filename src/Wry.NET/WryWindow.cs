@@ -687,7 +687,7 @@ public sealed class WryWindow
     /// Safe to call from any thread. The action receives this window
     /// and can call post-run methods on it.
     /// </summary>
-    public unsafe void Dispatch(Action<WryWindow> action)
+    internal unsafe void Dispatch(Action<WryWindow> action)
     {
         var captured = (Window: this, Action: action);
         var handle = GCHandle.Alloc(captured);

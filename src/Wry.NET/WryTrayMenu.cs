@@ -1,21 +1,5 @@
 namespace Wry.NET;
 
-/// <summary>
-/// Builder for a tray icon context menu. Add items, check items, separators,
-/// and submenus, then assign to <see cref="WryTrayIcon.Menu"/>.
-/// </summary>
-/// <example>
-/// <code>
-/// var menu = new WryTrayMenu();
-/// menu.AddItem("open", "Open Window");
-/// menu.AddSeparator();
-/// var sub = menu.AddSubmenu("Options");
-/// sub.AddCheckItem("dark", "Dark Mode");
-/// menu.AddSeparator();
-/// menu.AddItem("quit", "Quit");
-/// tray.Menu = menu;
-/// </code>
-/// </example>
 public sealed class WryTrayMenu : IDisposable
 {
     internal nint Handle { get; private set; }
