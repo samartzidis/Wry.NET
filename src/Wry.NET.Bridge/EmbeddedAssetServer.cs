@@ -104,6 +104,9 @@ internal sealed class EmbeddedAssetServer
         return window;
     }
 
+    /// <summary>Handler for create-time protocol registration (ProtocolRequest -> ProtocolResponse).</summary>
+    public ProtocolResponse HandleRequest(ProtocolRequest request) => HandleSchemeRequest(request.Url);
+
     /// <summary>
     /// Creates an EmbeddedAssetServer if the assembly contains embedded frontend assets.
     /// Returns <c>null</c> if no assets are found, allowing easy fallback to file-based loading.

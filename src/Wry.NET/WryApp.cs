@@ -4,6 +4,43 @@ using System.Runtime.InteropServices;
 namespace Wry.NET;
 
 /// <summary>
+/// Options for creating a window with config in one call. All properties are optional; null/zero = use defaults.
+/// Use with <see cref="WryApp.CreateWindow(WryWindow?, WryWindowCreateOptions?)"/> to avoid separate setters before run.
+/// </summary>
+public sealed class WryWindowCreateOptions
+{
+    /// <summary>Window title. Default is empty.</summary>
+    public string? Title { get; set; }
+
+    /// <summary>Initial URL to load. Ignored if <see cref="Html"/> is set.</summary>
+    public string? Url { get; set; }
+
+    /// <summary>Initial HTML content. If set, <see cref="Url"/> is ignored.</summary>
+    public string? Html { get; set; }
+
+    /// <summary>Initial width in pixels. Use 0 or leave unset for default (800).</summary>
+    public int Width { get; set; }
+
+    /// <summary>Initial height in pixels. Use 0 or leave unset for default (600).</summary>
+    public int Height { get; set; }
+
+    /// <summary>WebView user data directory (e.g. for WebView2). Default is %LOCALAPPDATA%/[AppName] when null.</summary>
+    public string? DataDirectory { get; set; }
+
+    /// <summary>
+    /// Custom protocol handlers (scheme + handler) to register at create time. Use for embedded/disk asset servers
+    /// so that both main and dynamic windows get the protocol when they are created.
+    /// </summary>
+    public List<(string Scheme, Func<ProtocolRequest, ProtocolResponse> Handler)>? Protocols { get; set; }
+
+    /// <summary>Enable default context menus (e.g. right-click). Default true. Windows only.</summary>
+    public bool DefaultContextMenus { get; set; } = true;
+
+    /// <summary>Path to window icon image file (PNG, ICO, JPEG, BMP, GIF). Windows and Linux only; macOS uses .app bundle icon.</summary>
+    public string? IconPath { get; set; }
+}
+
+/// <summary>
 /// Top-level application object. Owns the event loop and all windows.
 /// Must be created and run on the main thread.
 /// </summary>
@@ -78,18 +115,124 @@ public sealed class WryApp : IDisposable
     /// </summary>
     public WryWindow CreateWindow(WryWindow? owner)
     {
+        return CreateWindow(owner, options: null);
+    }
+
+    /// <summary>
+    /// Create a new window with optional owner and optional creation options.
+    /// When <paramref name="options"/> is non-null, config (title, url, size, data directory) is passed at create time;
+    /// otherwise the legacy path is used and you can configure via properties before <see cref="Run"/>.
+    /// </summary>
+    public unsafe WryWindow CreateWindow(WryWindow? owner, WryWindowCreateOptions? options)
+    {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
-        var id = owner is null
-            ? NativeMethods.wry_window_new(Handle)
-            : NativeMethods.wry_window_new_with_owner(Handle, owner.Id);
+        nuint id;
+
+        if (options is null)
+        {
+            options = new WryWindowCreateOptions { DataDirectory = GetDefaultDataDirectory() };
+        }
+
+        List<GCHandle>? pinnedProtocolHandles = null;
+        byte[]? iconBytes = null;
+        GCHandle iconHandle = default;
+        {
+            var ownerId = owner?.Id ?? 0u;
+            var dataDir = options.DataDirectory ?? GetDefaultDataDirectory();
+            nint titlePtr = 0, urlPtr = 0, htmlPtr = 0, dataDirPtr = 0;
+            nint protocolsPtr = 0;
+            int protocolCount = 0;
+            var schemePtrsToFree = new List<nint>();
+
+            if (!string.IsNullOrEmpty(options.IconPath) && File.Exists(options.IconPath))
+            {
+                iconBytes = File.ReadAllBytes(options.IconPath);
+                if (iconBytes.Length > 0)
+                    iconHandle = GCHandle.Alloc(iconBytes, GCHandleType.Pinned);
+            }
+
+            try
+            {
+                if (!string.IsNullOrEmpty(options.Title)) titlePtr = Marshal.StringToCoTaskMemUTF8(options.Title);
+                if (!string.IsNullOrEmpty(options.Url)) urlPtr = Marshal.StringToCoTaskMemUTF8(options.Url);
+                if (!string.IsNullOrEmpty(options.Html)) htmlPtr = Marshal.StringToCoTaskMemUTF8(options.Html);
+                if (!string.IsNullOrEmpty(dataDir)) dataDirPtr = Marshal.StringToCoTaskMemUTF8(dataDir);
+
+                if (options.Protocols is { Count: > 0 } protocols)
+                {
+                    pinnedProtocolHandles = [];
+                    var entries = new List<NativeMethods.WryProtocolEntryNative>();
+                    foreach (var (scheme, handler) in protocols)
+                    {
+                        if (string.IsNullOrEmpty(scheme)) continue;
+                        var h = GCHandle.Alloc(handler);
+                        pinnedProtocolHandles.Add(h);
+                        var schemePtr = Marshal.StringToCoTaskMemUTF8(scheme);
+                        schemePtrsToFree.Add(schemePtr);
+                        entries.Add(new NativeMethods.WryProtocolEntryNative
+                        {
+                            Scheme = schemePtr,
+                            Callback = WryWindow.GetProtocolBridgePointer(),
+                            Context = GCHandle.ToIntPtr(h),
+                        });
+                    }
+                    protocolCount = entries.Count;
+                    if (protocolCount > 0)
+                    {
+                        var stride = Marshal.SizeOf<NativeMethods.WryProtocolEntryNative>();
+                        protocolsPtr = Marshal.AllocHGlobal(protocolCount * stride);
+                        for (var i = 0; i < protocolCount; i++)
+                            Marshal.StructureToPtr(entries[i], protocolsPtr + i * stride, false);
+                    }
+                }
+
+                var config = new NativeMethods.WryWindowConfigNative
+                {
+                    Title = titlePtr,
+                    Url = urlPtr,
+                    Html = htmlPtr,
+                    Width = options.Width > 0 ? options.Width : 0,
+                    Height = options.Height > 0 ? options.Height : 0,
+                    DataDirectory = dataDirPtr,
+                    ProtocolCount = protocolCount,
+                    Protocols = protocolsPtr,
+                    DefaultContextMenus = options.DefaultContextMenus ? 1 : 0,
+                    IconData = iconHandle.IsAllocated ? iconHandle.AddrOfPinnedObject() : 0,
+                    IconDataLen = iconBytes?.Length ?? 0,
+                };
+                id = NativeMethods.wry_window_create(Handle, ownerId, 0, (nint)(&config));
+            }
+            finally
+            {
+                if (titlePtr != 0) Marshal.FreeCoTaskMem(titlePtr);
+                if (urlPtr != 0) Marshal.FreeCoTaskMem(urlPtr);
+                if (htmlPtr != 0) Marshal.FreeCoTaskMem(htmlPtr);
+                if (dataDirPtr != 0) Marshal.FreeCoTaskMem(dataDirPtr);
+                foreach (var p in schemePtrsToFree)
+                    if (p != 0) Marshal.FreeCoTaskMem(p);
+                if (protocolsPtr != 0) Marshal.FreeHGlobal(protocolsPtr);
+                if (iconHandle.IsAllocated) iconHandle.Free();
+            }
+        }
+
         if (id == 0)
             throw new InvalidOperationException("Failed to create native window.");
 
         var window = new WryWindow(this, id);
+        if (pinnedProtocolHandles != null)
+            window.AddPinnedProtocolHandles(pinnedProtocolHandles);
         _windows.Add(window);
         window.RegisterNativeCallbacks();
         return window;
+    }
+
+    private static string GetDefaultDataDirectory()
+    {
+        var appName = System.Reflection.Assembly.GetEntryAssembly()?.GetName().Name ?? "WryApp";
+        return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            appName);
     }
 
     /// <summary>

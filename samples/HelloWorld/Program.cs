@@ -9,20 +9,21 @@ class Program
         var version = WryApp.GetWebViewVersion();
         Console.WriteLine($"WebView version: {version}");
 
-        // Create app and window
+        // Create app and window with options
         using var app = new WryApp();
-        var window = app.CreateWindow();
-
-        // Configure window
-        window.Title = "Wry.NET Sample";
-        window.Size = (1024, 768);
-        window.Center();
-        window.DefaultContextMenus = false;
-
-        // Set window icon from the shared app.ico
         var iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
-        if (File.Exists(iconPath))
-            window.SetIconFromFile(iconPath);
+        var options = new WryWindowCreateOptions
+        {
+            Title = "Wry.NET Sample",
+            Width = 1024,
+            Height = 768,
+            DefaultContextMenus = false,
+            IconPath = File.Exists(iconPath) ? iconPath : null,
+        };
+        var window = app.CreateWindow(null, options);
+
+        // Configure window (position, etc.). Window icon is set at creation time via WryWindowCreateOptions when supported.
+        window.Center();
 
         // Load a simple HTML page with IPC demo
         window.Html = """

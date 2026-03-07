@@ -27,19 +27,20 @@ namespace SampleApp
             var devUrl = args.FirstOrDefault(a => a.StartsWith("--dev-url="))?.Split('=', 2)[1]
                       ?? Environment.GetEnvironmentVariable("WRY_DEV_URL");
 
-            // Create the Wry.NET application and window
-            using var app = new WryApp();
-            var window = app.CreateWindow();
-
-            window.Title = "Wry.NET Bridge React App";
-            window.Size = (1024, 800);
-            window.Center();
-            window.DefaultContextMenus = false;
-
-            // Set window icon from the shared app.ico
+            // Prepare frontend (URL + protocol if embedded/disk) so we can pass at create time
+            var options = new WryWindowCreateOptions();
+            options.SetFrontend(devUrl: devUrl, assembly: Assembly.GetExecutingAssembly(), loggerFactory: loggerFactory);
+            options.Title = "Wry.NET Bridge React App";
+            options.Width = 1024;
+            options.Height = 800;
+            options.DefaultContextMenus = false;
             var iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
             if (File.Exists(iconPath))
-                window.SetIconFromFile(iconPath);
+                options.IconPath = iconPath;
+
+            // Create the Wry.NET application and window with options (content loads from URL + protocol)
+            using var app = new WryApp();
+            var window = app.CreateWindow(null, options);
 
             // Attach the bridge (registers IPC handler + init script shims)
             bridge.Attach(window);
@@ -78,6 +79,7 @@ namespace SampleApp
                     case "hide":
                         window.Dispatch(w => w.Visible = false);
                         break;
+                    /*
                     case "new_window":
                         // Dynamic child window: same SPA, route ?window=child. Owner = main (stays on top, closes with main).
                         // URL and protocol are applied to the queued window (Tauri-style: config at create time).
@@ -97,18 +99,13 @@ namespace SampleApp
                                 child.Visible = true;
                         };
                         break;
+                    */
                     case "quit":
                         foreach (var w in app.Windows)
                             w.Dispatch(win => win.Close());
                         break;
                 }
             };
-
-            // Configure frontend loading for main window: dev server -> embedded assets -> disk fallback
-            window.LoadFrontend(
-                assembly: Assembly.GetExecutingAssembly(),
-                devUrl: devUrl,
-                loggerFactory: loggerFactory);
 
             app.Run();
         }

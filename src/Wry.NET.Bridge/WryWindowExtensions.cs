@@ -11,6 +11,57 @@ namespace Wry.NET.Bridge;
 public static class WryWindowExtensions
 {
     /// <summary>
+    /// Fills this options instance with frontend URL and optional protocol so you can pass it at window creation.
+    /// Use with <c>app.CreateWindow(null, options)</c> so the window shows content. Same strategy order as <see cref="LoadFrontend"/>.
+    /// </summary>
+    public static void SetFrontend(
+        this WryWindowCreateOptions options,
+        string? devUrl = null,
+        string diskFallback = "wwwroot/index.html",
+        Assembly? assembly = null,
+        string resourcePrefix = "frontend/",
+        string entryFile = "index.html",
+        string scheme = "app",
+        string? pathFragment = null,
+        ILoggerFactory? loggerFactory = null)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        var log = loggerFactory?.CreateLogger(nameof(WryWindowExtensions))
+               ?? NullLogger.Instance;
+        var assetLogger = loggerFactory?.CreateLogger<EmbeddedAssetServer>();
+        var pathSuffix = pathFragment ?? "";
+
+        // 1. Dev server
+        if (!string.IsNullOrEmpty(devUrl))
+        {
+            log.LogInformation("Dev mode: loading from {Url}", devUrl + pathSuffix);
+            options.Url = devUrl + pathSuffix;
+            return;
+        }
+
+        // 2. Embedded assets
+        if (assembly != null)
+        {
+            var server = EmbeddedAssetServer.CreateIfAvailable(assembly, resourcePrefix, entryFile, scheme, assetLogger);
+            if (server != null)
+            {
+                log.LogInformation("Serving {AssetCount} embedded frontend assets via '{Scheme}://' scheme", server.AssetCount, server.Scheme);
+                options.Url = server.EntryUrl + pathSuffix;
+                options.Protocols = [(server.Scheme, server.HandleRequest)];
+                return;
+            }
+        }
+
+        // 3. Disk fallback
+        var basePath = AppContext.BaseDirectory;
+        var diskDir = Path.GetDirectoryName(Path.GetFullPath(Path.Combine(basePath, diskFallback)))!;
+        var server2 = new DiskAssetServer(diskDir, entryFile, scheme, loggerFactory?.CreateLogger<DiskAssetServer>());
+        log.LogInformation("Serving frontend from disk via '{Scheme}://' scheme ({Path})", scheme, diskDir);
+        options.Url = server2.EntryUrl + pathSuffix;
+        options.Protocols = [(server2.Scheme, server2.HandleRequest)];
+    }
+
+    /// <summary>
     /// Loads frontend content into the window using the best available strategy:
     /// <list type="number">
     ///   <item><b>Dev server</b> — if <paramref name="devUrl"/> is provided, the WebView loads from
