@@ -41,6 +41,117 @@ public sealed class WryWindowCreateOptions
 
     /// <summary>JavaScript init scripts injected before page load. Add scripts here instead of calling AddInitScript after creation.</summary>
     public List<string>? InitScripts { get; set; }
+
+    /// <summary>Minimum window size in pixels (width, height). Null = no minimum.</summary>
+    public (int Width, int Height)? MinSize { get; set; }
+
+    /// <summary>Maximum window size in pixels (width, height). Null = no maximum.</summary>
+    public (int Width, int Height)? MaxSize { get; set; }
+
+    /// <summary>Initial window position in pixels (x, y). Null = OS default.</summary>
+    public (int X, int Y)? Position { get; set; }
+
+    /// <summary>Whether the window is resizable. Default true.</summary>
+    public bool Resizable { get; set; } = true;
+
+    /// <summary>Whether the window starts in fullscreen mode. Default false.</summary>
+    public bool Fullscreen { get; set; }
+
+    /// <summary>Whether the window starts maximized. Default false.</summary>
+    public bool Maximized { get; set; }
+
+    /// <summary>Whether the window starts minimized. Default false.</summary>
+    public bool Minimized { get; set; }
+
+    /// <summary>Whether the window is always on top. Default false.</summary>
+    public bool Topmost { get; set; }
+
+    /// <summary>Whether the window is visible. Default true.</summary>
+    public bool Visible { get; set; } = true;
+
+    /// <summary>Enable developer tools. Default false.</summary>
+    public bool Devtools { get; set; }
+
+    /// <summary>Whether the window is transparent. Default false.</summary>
+    public bool Transparent { get; set; }
+
+    /// <summary>Whether the window has decorations (title bar, borders). Default true.</summary>
+    public bool Decorations { get; set; } = true;
+
+    /// <summary>Custom user agent string. Null = browser default.</summary>
+    public string? UserAgent { get; set; }
+
+    /// <summary>Initial zoom level. Default 1.0. Values &lt;= 0 are ignored.</summary>
+    public double Zoom { get; set; } = 1.0;
+
+    /// <summary>Enable back/forward navigation gestures. Default false. macOS only.</summary>
+    public bool BackForwardGestures { get; set; }
+
+    /// <summary>Enable media autoplay. Default false.</summary>
+    public bool Autoplay { get; set; }
+
+    /// <summary>Enable hotkey-based zoom (Ctrl+/Ctrl-). Default true.</summary>
+    public bool HotkeysZoom { get; set; } = true;
+
+    /// <summary>Enable clipboard access from JavaScript. Default false.</summary>
+    public bool Clipboard { get; set; }
+
+    /// <summary>Accept first mouse click when window is not focused. Default false. macOS only.</summary>
+    public bool AcceptFirstMouse { get; set; }
+
+    /// <summary>Use incognito/private browsing mode. Default false.</summary>
+    public bool Incognito { get; set; }
+
+    /// <summary>Whether the window receives focus when created. Default true.</summary>
+    public bool Focused { get; set; } = true;
+
+    /// <summary>Disable JavaScript execution. Default false.</summary>
+    public bool JavascriptDisabled { get; set; }
+
+    /// <summary>Background color as (R, G, B, A). Null = platform default.</summary>
+    public (byte R, byte G, byte B, byte A)? BackgroundColor { get; set; }
+
+    /// <summary>Background throttling policy. Null = default. Windows only.</summary>
+    public int? BackgroundThrottling { get; set; }
+
+    /// <summary>Window theme. 0 = system, 1 = light, 2 = dark. Default 0. Windows only.</summary>
+    public int Theme { get; set; }
+
+    /// <summary>Use HTTPS scheme for custom protocols. Default false. Windows only.</summary>
+    public bool HttpsScheme { get; set; }
+
+    /// <summary>Enable browser accelerator keys (F5, Ctrl+R, etc.). Default true. Windows only.</summary>
+    public bool BrowserAcceleratorKeys { get; set; } = true;
+
+    /// <summary>Scrollbar style. 0 = default, 1 = fluent overlay, 2 = none. Windows only.</summary>
+    public int ScrollBarStyle { get; set; }
+
+    /// <summary>Hide the window from the taskbar. Default false.</summary>
+    public bool SkipTaskbar { get; set; }
+
+    /// <summary>Prevent screen capture of the window content. Default false.</summary>
+    public bool ContentProtected { get; set; }
+
+    /// <summary>Enable window shadow. Default true.</summary>
+    public bool Shadow { get; set; } = true;
+
+    /// <summary>Keep the window below other windows. Default false.</summary>
+    public bool AlwaysOnBottom { get; set; }
+
+    /// <summary>Allow the window to be maximized. Default true.</summary>
+    public bool Maximizable { get; set; } = true;
+
+    /// <summary>Allow the window to be minimized. Default true.</summary>
+    public bool Minimizable { get; set; } = true;
+
+    /// <summary>Allow the window to be closed. Default true.</summary>
+    public bool Closable { get; set; } = true;
+
+    /// <summary>Allow the window to receive focus. Default true.</summary>
+    public bool Focusable { get; set; } = true;
+
+    /// <summary>Custom window class name. Null = default. Windows only.</summary>
+    public string? WindowClassname { get; set; }
 }
 
 /// <summary>
@@ -143,9 +254,9 @@ public sealed class WryApp : IDisposable
         GCHandle iconHandle = default;
         nuint id;
         {
-            var ownerId = owner?.Id ?? 0u;
             var dataDir = options.DataDirectory ?? GetDefaultDataDirectory();
             nint titlePtr = 0, urlPtr = 0, htmlPtr = 0, dataDirPtr = 0;
+            nint userAgentPtr = 0, windowClassnamePtr = 0;
             nint protocolsPtr = 0;
             int protocolCount = 0;
             var schemePtrsToFree = new List<nint>();
@@ -165,6 +276,8 @@ public sealed class WryApp : IDisposable
                 if (!string.IsNullOrEmpty(options.Url)) urlPtr = Marshal.StringToCoTaskMemUTF8(options.Url);
                 if (!string.IsNullOrEmpty(options.Html)) htmlPtr = Marshal.StringToCoTaskMemUTF8(options.Html);
                 if (!string.IsNullOrEmpty(dataDir)) dataDirPtr = Marshal.StringToCoTaskMemUTF8(dataDir);
+                if (!string.IsNullOrEmpty(options.UserAgent)) userAgentPtr = Marshal.StringToCoTaskMemUTF8(options.UserAgent);
+                if (!string.IsNullOrEmpty(options.WindowClassname)) windowClassnamePtr = Marshal.StringToCoTaskMemUTF8(options.WindowClassname);
 
                 if (options.Protocols is { Count: > 0 } protocols)
                 {
@@ -226,9 +339,57 @@ public sealed class WryApp : IDisposable
                     IconDataLen = iconBytes?.Length ?? 0,
                     InitScriptCount = initScriptCount,
                     InitScripts = initScriptsArrayPtr,
+                    MinWidth = options.MinSize?.Width ?? 0,
+                    MinHeight = options.MinSize?.Height ?? 0,
+                    MaxWidth = options.MaxSize?.Width ?? 0,
+                    MaxHeight = options.MaxSize?.Height ?? 0,
+                    HasPosition = options.Position.HasValue ? 1 : 0,
+                    X = options.Position?.X ?? 0,
+                    Y = options.Position?.Y ?? 0,
+                    Resizable = options.Resizable ? 1 : 0,
+                    Fullscreen = options.Fullscreen ? 1 : 0,
+                    Maximized = options.Maximized ? 1 : 0,
+                    Minimized = options.Minimized ? 1 : 0,
+                    Topmost = options.Topmost ? 1 : 0,
+                    Visible = options.Visible ? 1 : 0,
+                    Devtools = options.Devtools ? 1 : 0,
+                    Transparent = options.Transparent ? 1 : 0,
+                    Decorations = options.Decorations ? 1 : 0,
+                    UserAgent = userAgentPtr,
+                    Zoom = options.Zoom,
+                    BackForwardGestures = options.BackForwardGestures ? 1 : 0,
+                    Autoplay = options.Autoplay ? 1 : 0,
+                    HotkeysZoom = options.HotkeysZoom ? 1 : 0,
+                    Clipboard = options.Clipboard ? 1 : 0,
+                    AcceptFirstMouse = options.AcceptFirstMouse ? 1 : 0,
+                    Incognito = options.Incognito ? 1 : 0,
+                    Focused = options.Focused ? 1 : 0,
+                    JavascriptDisabled = options.JavascriptDisabled ? 1 : 0,
+                    HasBackgroundColor = options.BackgroundColor.HasValue ? 1 : 0,
+                    BgR = options.BackgroundColor?.R ?? 0,
+                    BgG = options.BackgroundColor?.G ?? 0,
+                    BgB = options.BackgroundColor?.B ?? 0,
+                    BgA = options.BackgroundColor?.A ?? 0,
+                    HasBackgroundThrottling = options.BackgroundThrottling.HasValue ? 1 : 0,
+                    BackgroundThrottling = options.BackgroundThrottling ?? 0,
+                    Theme = options.Theme,
+                    HttpsScheme = options.HttpsScheme ? 1 : 0,
+                    BrowserAcceleratorKeys = options.BrowserAcceleratorKeys ? 1 : 0,
+                    ScrollBarStyle = options.ScrollBarStyle,
+                    SkipTaskbar = options.SkipTaskbar ? 1 : 0,
+                    ContentProtected = options.ContentProtected ? 1 : 0,
+                    Shadow = options.Shadow ? 1 : 0,
+                    AlwaysOnBottom = options.AlwaysOnBottom ? 1 : 0,
+                    Maximizable = options.Maximizable ? 1 : 0,
+                    Minimizable = options.Minimizable ? 1 : 0,
+                    Closable = options.Closable ? 1 : 0,
+                    Focusable = options.Focusable ? 1 : 0,
+                    WindowClassname = windowClassnamePtr,
+                    OwnerWindowId = owner?.Id ?? 0u,
+                    ParentWindowId = 0,
                 };
                 WryWindow.PopulateCallbacks(ref config, window.GCHandlePtr);
-                id = NativeMethods.wry_window_create(Handle, ownerId, 0, (nint)(&config));
+                id = NativeMethods.wry_window_create(Handle, 0, 0, (nint)(&config));
             }
             finally
             {
@@ -236,6 +397,8 @@ public sealed class WryApp : IDisposable
                 if (urlPtr != 0) Marshal.FreeCoTaskMem(urlPtr);
                 if (htmlPtr != 0) Marshal.FreeCoTaskMem(htmlPtr);
                 if (dataDirPtr != 0) Marshal.FreeCoTaskMem(dataDirPtr);
+                if (userAgentPtr != 0) Marshal.FreeCoTaskMem(userAgentPtr);
+                if (windowClassnamePtr != 0) Marshal.FreeCoTaskMem(windowClassnamePtr);
                 foreach (var p in schemePtrsToFree)
                     if (p != 0) Marshal.FreeCoTaskMem(p);
                 if (protocolsPtr != 0) Marshal.FreeHGlobal(protocolsPtr);

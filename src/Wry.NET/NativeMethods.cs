@@ -68,12 +68,62 @@ internal static partial class NativeMethods
         internal int Height;
         internal nint DataDirectory;
         internal int ProtocolCount;
-        internal nint Protocols; // *const WryProtocolEntry
-        internal int DefaultContextMenus; // 0 = false, non-zero = true. Windows only.
-        internal nint IconData; // pointer to image file bytes (PNG, ICO, etc.)
+        internal nint Protocols;
+        internal int DefaultContextMenus;
+        internal nint IconData;
         internal int IconDataLen;
         internal int InitScriptCount;
-        internal nint InitScripts; // *const *const c_char (array of UTF-8 string pointers)
+        internal nint InitScripts;
+
+        // Window properties
+        internal int MinWidth;
+        internal int MinHeight;
+        internal int MaxWidth;
+        internal int MaxHeight;
+        internal int HasPosition;
+        internal int X;
+        internal int Y;
+        internal int Resizable;
+        internal int Fullscreen;
+        internal int Maximized;
+        internal int Minimized;
+        internal int Topmost;
+        internal int Visible;
+        internal int Devtools;
+        internal int Transparent;
+        internal int Decorations;
+        internal nint UserAgent;
+        internal double Zoom;
+        internal int BackForwardGestures;
+        internal int Autoplay;
+        internal int HotkeysZoom;
+        internal int Clipboard;
+        internal int AcceptFirstMouse;
+        internal int Incognito;
+        internal int Focused;
+        internal int JavascriptDisabled;
+        internal int HasBackgroundColor;
+        internal byte BgR;
+        internal byte BgG;
+        internal byte BgB;
+        internal byte BgA;
+        internal int HasBackgroundThrottling;
+        internal int BackgroundThrottling;
+        internal int Theme;
+        internal int HttpsScheme;
+        internal int BrowserAcceleratorKeys;
+        internal int ScrollBarStyle;
+        internal int SkipTaskbar;
+        internal int ContentProtected;
+        internal int Shadow;
+        internal int AlwaysOnBottom;
+        internal int Maximizable;
+        internal int Minimizable;
+        internal int Closable;
+        internal int Focusable;
+        internal nint WindowClassname;
+        internal nuint OwnerWindowId;
+        internal nuint ParentWindowId;
 
         // Event callbacks: function pointer + opaque context. 0 = not set.
         internal nint IpcHandler;

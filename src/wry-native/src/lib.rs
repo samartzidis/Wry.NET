@@ -207,6 +207,66 @@ pub struct WryWindowConfig {
     pub init_script_count: c_int,
     pub init_scripts: *const *const c_char,
 
+    // --- Window properties (all fields present on all platforms; platform-only ones are ignored elsewhere) ---
+    pub min_width: c_int,
+    pub min_height: c_int,
+    pub max_width: c_int,
+    pub max_height: c_int,
+    /// Non-zero = position is set; 0 = use OS default.
+    pub has_position: c_int,
+    pub x: c_int,
+    pub y: c_int,
+    pub resizable: c_int,
+    pub fullscreen: c_int,
+    pub maximized: c_int,
+    pub minimized: c_int,
+    pub topmost: c_int,
+    pub visible: c_int,
+    pub devtools: c_int,
+    pub transparent: c_int,
+    pub decorations: c_int,
+    pub user_agent: *const c_char,
+    pub zoom: f64,
+    pub back_forward_gestures: c_int,
+    pub autoplay: c_int,
+    pub hotkeys_zoom: c_int,
+    pub clipboard: c_int,
+    pub accept_first_mouse: c_int,
+    pub incognito: c_int,
+    pub focused: c_int,
+    pub javascript_disabled: c_int,
+    /// Non-zero = background color is set.
+    pub has_background_color: c_int,
+    pub bg_r: u8,
+    pub bg_g: u8,
+    pub bg_b: u8,
+    pub bg_a: u8,
+    /// Non-zero = background throttling is set.
+    pub has_background_throttling: c_int,
+    pub background_throttling: c_int,
+    /// Windows only. 0 = system default, 1 = light, 2 = dark.
+    pub theme: c_int,
+    /// Windows only.
+    pub https_scheme: c_int,
+    /// Windows only.
+    pub browser_accelerator_keys: c_int,
+    /// Windows only. 0 = default, 1 = fluent overlay, 2 = none.
+    pub scroll_bar_style: c_int,
+    pub skip_taskbar: c_int,
+    pub content_protected: c_int,
+    pub shadow: c_int,
+    pub always_on_bottom: c_int,
+    pub maximizable: c_int,
+    pub minimizable: c_int,
+    pub closable: c_int,
+    pub focusable: c_int,
+    /// Windows only. null = default class name.
+    pub window_classname: *const c_char,
+    /// 0 = no owner.
+    pub owner_window_id: usize,
+    /// 0 = no parent.
+    pub parent_window_id: usize,
+
     // Event callbacks: function pointer + opaque context. Null function pointer = not set.
     pub ipc_handler: Option<IpcCallback>,
     pub ipc_handler_ctx: *mut c_void,
@@ -291,6 +351,78 @@ fn payload_from_config(config: *const WryWindowConfig) -> WindowCreatePayload {
             }
         }
     }
+
+    if c.min_width > 0 && c.min_height > 0 {
+        payload.min_size = Some((c.min_width as u32, c.min_height as u32));
+    }
+    if c.max_width > 0 && c.max_height > 0 {
+        payload.max_size = Some((c.max_width as u32, c.max_height as u32));
+    }
+    if c.has_position != 0 {
+        payload.position = Some((c.x, c.y));
+    }
+    payload.resizable = c.resizable != 0;
+    payload.fullscreen = c.fullscreen != 0;
+    payload.maximized = c.maximized != 0;
+    payload.minimized = c.minimized != 0;
+    payload.topmost = c.topmost != 0;
+    payload.visible = c.visible != 0;
+    payload.devtools = c.devtools != 0;
+    payload.transparent = c.transparent != 0;
+    payload.decorations = c.decorations != 0;
+    if !c.user_agent.is_null() {
+        let s = unsafe { c_str_to_string(c.user_agent) };
+        if !s.is_empty() {
+            payload.user_agent = Some(s);
+        }
+    }
+    if c.zoom > 0.0 {
+        payload.zoom = c.zoom;
+    }
+    payload.back_forward_gestures = c.back_forward_gestures != 0;
+    payload.autoplay = c.autoplay != 0;
+    payload.hotkeys_zoom = c.hotkeys_zoom != 0;
+    payload.clipboard = c.clipboard != 0;
+    payload.accept_first_mouse = c.accept_first_mouse != 0;
+    payload.incognito = c.incognito != 0;
+    payload.focused = c.focused != 0;
+    payload.javascript_disabled = c.javascript_disabled != 0;
+    if c.has_background_color != 0 {
+        payload.background_color = Some((c.bg_r, c.bg_g, c.bg_b, c.bg_a));
+    }
+    if c.has_background_throttling != 0 {
+        payload.background_throttling = Some(c.background_throttling);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        payload.theme = c.theme;
+        payload.https_scheme = c.https_scheme != 0;
+        payload.browser_accelerator_keys = c.browser_accelerator_keys != 0;
+        payload.scroll_bar_style = c.scroll_bar_style;
+    }
+    payload.skip_taskbar = c.skip_taskbar != 0;
+    payload.content_protected = c.content_protected != 0;
+    payload.shadow = c.shadow != 0;
+    payload.always_on_bottom = c.always_on_bottom != 0;
+    payload.maximizable = c.maximizable != 0;
+    payload.minimizable = c.minimizable != 0;
+    payload.closable = c.closable != 0;
+    payload.focusable = c.focusable != 0;
+    #[cfg(target_os = "windows")]
+    if !c.window_classname.is_null() {
+        let s = unsafe { c_str_to_string(c.window_classname) };
+        if !s.is_empty() {
+            payload.window_classname = Some(s);
+        }
+    }
+    if c.owner_window_id != 0 {
+        payload.owner_window_id = Some(c.owner_window_id);
+        payload.parent_window_id = None;
+    } else if c.parent_window_id != 0 {
+        payload.parent_window_id = Some(c.parent_window_id);
+        payload.owner_window_id = None;
+    }
+
     if let Some(cb) = c.ipc_handler {
         payload.ipc_handler = Some((cb, c.ipc_handler_ctx as usize));
     }
