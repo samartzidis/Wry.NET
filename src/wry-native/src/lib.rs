@@ -2450,6 +2450,74 @@ pub extern "C" fn wry_webview_version() -> *mut c_char {
 }
 
 // ---------------------------------------------------------------------------
+// WebView2 native handles (Windows only)
+// ---------------------------------------------------------------------------
+//
+// Return raw COM interface pointers (ICoreWebView2Controller, ICoreWebView2Environment,
+// ICoreWebView2). The caller (e.g. C#) may use them with the WebView2 SDK. We clone the
+// interface so the returned pointer has its own ref; the caller must not release it
+// until they are done (or they may wrap with Marshal.GetObjectForIUnknown which AddRefs).
+
+/// Return the WebView2 controller (ICoreWebView2Controller) as a raw pointer.
+/// Windows only; returns null on other platforms or if the webview is not created.
+/// The pointer is valid until the window is destroyed. Caller must not release the COM reference.
+#[no_mangle]
+pub extern "C" fn wry_window_get_webview2_controller(win: *mut WryWindow) -> *mut c_void {
+    if win.is_null() {
+        return std::ptr::null_mut();
+    }
+    let win = unsafe { &*win };
+    #[cfg(target_os = "windows")]
+    if let Some(ref wv) = win.webview {
+        use wry::WebViewExtWindows;
+        let c = wv.controller();
+        let ptr = unsafe { std::mem::transmute_copy::<_, *mut c_void>(&c) };
+        std::mem::forget(c);
+        return ptr;
+    }
+    std::ptr::null_mut()
+}
+
+/// Return the WebView2 environment (ICoreWebView2Environment) as a raw pointer.
+/// Windows only; returns null on other platforms or if the webview is not created.
+#[no_mangle]
+pub extern "C" fn wry_window_get_webview2_environment(win: *mut WryWindow) -> *mut c_void {
+    if win.is_null() {
+        return std::ptr::null_mut();
+    }
+    let win = unsafe { &*win };
+    #[cfg(target_os = "windows")]
+    if let Some(ref wv) = win.webview {
+        use wry::WebViewExtWindows;
+        let e = wv.environment();
+        let ptr = unsafe { std::mem::transmute_copy::<_, *mut c_void>(&e) };
+        std::mem::forget(e);
+        return ptr;
+    }
+    std::ptr::null_mut()
+}
+
+/// Return the WebView2 webview (ICoreWebView2) as a raw pointer.
+/// Windows only; returns null on other platforms or if the webview is not created.
+/// Use this e.g. for CapturePreview (screenshot) or other WebView2 APIs.
+#[no_mangle]
+pub extern "C" fn wry_window_get_webview2_webview(win: *mut WryWindow) -> *mut c_void {
+    if win.is_null() {
+        return std::ptr::null_mut();
+    }
+    let win = unsafe { &*win };
+    #[cfg(target_os = "windows")]
+    if let Some(ref wv) = win.webview {
+        use wry::WebViewExtWindows;
+        let w = wv.webview();
+        let ptr = unsafe { std::mem::transmute_copy::<_, *mut c_void>(&w) };
+        std::mem::forget(w);
+        return ptr;
+    }
+    std::ptr::null_mut()
+}
+
+// ---------------------------------------------------------------------------
 // Cross-thread dispatch
 // ---------------------------------------------------------------------------
 

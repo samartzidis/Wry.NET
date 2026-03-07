@@ -552,6 +552,53 @@ public sealed class WryWindow
     public bool IsDevToolsOpen => NativeMethods.wry_window_is_devtools_open(_nativePtr);
 
     // =======================================================================
+    // WebView2 native handles (Windows only)
+    // =======================================================================
+
+    /// <summary>
+    /// Gets the raw WebView2 controller (ICoreWebView2Controller) pointer for use with the WebView2 SDK.
+    /// Valid until the window is destroyed. Use with COM interop or Microsoft.Web.WebView2.
+    /// </summary>
+    /// <exception cref="PlatformNotSupportedException">Not supported on this platform; only Windows is supported.</exception>
+    public nint WebView2Controller
+    {
+        get
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                throw new PlatformNotSupportedException("WebView2 handles are supported only on Windows.");
+            return NativeMethods.wry_window_get_webview2_controller(_nativePtr);
+        }
+    }
+
+    /// <summary>
+    /// Gets the raw WebView2 environment (ICoreWebView2Environment) pointer for use with the WebView2 SDK.
+    /// </summary>
+    /// <exception cref="PlatformNotSupportedException">Not supported on this platform; only Windows is supported.</exception>
+    public nint WebView2Environment
+    {
+        get
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                throw new PlatformNotSupportedException("WebView2 handles are supported only on Windows.");
+            return NativeMethods.wry_window_get_webview2_environment(_nativePtr);
+        }
+    }
+
+    /// <summary>
+    /// Gets the raw WebView2 webview (ICoreWebView2) pointer for use with the WebView2 SDK (e.g. CapturePreview for screenshots).
+    /// </summary>
+    /// <exception cref="PlatformNotSupportedException">Not supported on this platform; only Windows is supported.</exception>
+    public nint WebView2WebView
+    {
+        get
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                throw new PlatformNotSupportedException("WebView2 handles are supported only on Windows.");
+            return NativeMethods.wry_window_get_webview2_webview(_nativePtr);
+        }
+    }
+
+    // =======================================================================
     // Post-run read-only properties
     // =======================================================================
 

@@ -361,6 +361,19 @@ internal static partial class NativeMethods
     internal static partial nint wry_webview_version();
 
     // -----------------------------------------------------------------------
+    // WebView2 native handles (Windows only)
+    // -----------------------------------------------------------------------
+
+    [LibraryImport(LibName)]
+    internal static partial nint wry_window_get_webview2_controller(nint win);
+
+    [LibraryImport(LibName)]
+    internal static partial nint wry_window_get_webview2_environment(nint win);
+
+    [LibraryImport(LibName)]
+    internal static partial nint wry_window_get_webview2_webview(nint win);
+
+    // -----------------------------------------------------------------------
     // Cross-thread dispatch
     // -----------------------------------------------------------------------
 

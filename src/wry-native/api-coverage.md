@@ -159,7 +159,7 @@ All window and webview builder options are passed at creation time via `WryWindo
 | **Not covered (Win)** | `with_additional_browser_args` | ✗ | Extra WebView2 args not exposed |
 | **Not covered (Win)** | `with_browser_extensions_enabled` / `with_extensions_path` | ✗ | Browser extensions not exposed |
 | **Not covered (Win)** | `with_environment` | ✗ | Shared WebView2 environment not exposed |
-| **Not covered (Win)** | `controller()` / `environment()` / `webview()` | ✗ | Native WebView2 handles not exposed |
+| **Runtime (Win)** | `controller()` / `environment()` / `webview()` | ✓ | `wry_window_get_webview2_controller`, `wry_window_get_webview2_environment`, `wry_window_get_webview2_webview` - raw COM pointers for WebView2 SDK (e.g. CapturePreview) |
 | **Not covered (Win)** | `set_memory_usage_level` | ✗ | Memory usage target not exposed |
 | **Not covered (Win)** | `reparent` | ✗ | Not exposed |
 | **Not covered (Darwin)** | `with_data_store_identifier` | ✗ | Custom data store not exposed (macOS 14+, iOS 17+) |
