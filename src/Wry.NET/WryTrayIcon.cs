@@ -3,10 +3,68 @@ using System.Runtime.InteropServices;
 
 namespace Wry.NET;
 
+/// <summary>
+/// Options for creating a tray icon with all configuration in one call.
+/// Use with <see cref="WryApp.CreateTrayIcon(WryTrayIconCreateOptions)"/>.
+/// </summary>
+public sealed class WryTrayIconCreateOptions
+{
+    /// <summary>Tooltip text shown when hovering. Null = no tooltip.</summary>
+    public string? Tooltip { get; set; }
+
+    /// <summary>Tray icon title. macOS only - displayed next to the icon.</summary>
+    public string? Title { get; set; }
+
+    /// <summary>Encoded image file bytes (PNG, ICO, JPEG, BMP, GIF) for the tray icon.</summary>
+    public byte[]? IconData { get; set; }
+
+    /// <summary>Context menu. The menu is consumed at creation time - do not reuse.</summary>
+    public WryTrayMenu? Menu { get; set; }
+
+    /// <summary>Show the context menu on left-click. Default true.</summary>
+    public bool MenuOnLeftClick { get; set; } = true;
+
+    /// <summary>Whether the tray icon is visible. Default true.</summary>
+    public bool Visible { get; set; } = true;
+
+    /// <summary>macOS only. Treat the icon as a template image (auto-colored to match system theme).</summary>
+    public bool IconIsTemplate { get; set; }
+}
+
+/// <summary>
+/// A system tray icon. Create with <see cref="WryApp.CreateTrayIcon(WryTrayIconCreateOptions)"/>
+/// and attach event handlers. Properties are thread-safe and can be set from
+/// any thread after the event loop starts.
+/// </summary>
+/// <example>
+/// <code>
+/// using var app = new WryApp();
+///
+/// var menu = new WryTrayMenu();
+/// menu.AddItem("open", "Open");
+/// menu.AddSeparator();
+/// menu.AddItem("quit", "Quit");
+///
+/// var tray = app.CreateTrayIcon(new WryTrayIconCreateOptions
+/// {
+///     Tooltip = "My App",
+///     IconData = File.ReadAllBytes("icon.png"),
+///     Menu = menu,
+/// });
+///
+/// tray.MenuItemClicked += (s, e) =&gt;
+/// {
+///     if (e.ItemId == "quit")
+///         tray.Remove();
+/// };
+///
+/// app.Run();
+/// </code>
+/// </example>
 public sealed class WryTrayIcon
 {
     private readonly WryApp _app;
-    private readonly nuint _trayId;
+    private nuint _trayId;
     private nint _nativePtr; // set once materialized in the event loop
     private GCHandle _gcHandle;
 
@@ -17,7 +75,9 @@ public sealed class WryTrayIcon
         _gcHandle = GCHandle.Alloc(this);
     }
 
-    private nint GCHandlePtr => GCHandle.ToIntPtr(_gcHandle);
+    internal void SetTrayId(nuint id) => _trayId = id;
+
+    internal nint GCHandlePtr => GCHandle.ToIntPtr(_gcHandle);
 
     /// <summary>Whether the tray icon has been materialized (post-run).</summary>
     public bool IsLive => _nativePtr != 0;
@@ -38,7 +98,7 @@ public sealed class WryTrayIcon
     public event EventHandler<TrayMenuItemClickedEventArgs>? MenuItemClicked;
 
     // =======================================================================
-    // Properties (set before or after app.Run())
+    // Properties (set after the tray is materialized via RunOnMainThread)
     // =======================================================================
 
     /// <summary>Set the tooltip text shown when hovering over the tray icon.</summary>
@@ -47,10 +107,7 @@ public sealed class WryTrayIcon
         set
         {
             if (value is null) return;
-            if (IsLive)
-                RunOnMainThread(t => NativeMethods.wry_tray_set_tooltip_direct(t._nativePtr, value));
-            else
-                NativeMethods.wry_tray_set_tooltip(_app.Handle, _trayId, value);
+            RunOnMainThread(t => NativeMethods.wry_tray_set_tooltip(t._nativePtr, value));
         }
     }
 
@@ -60,10 +117,7 @@ public sealed class WryTrayIcon
         set
         {
             if (value is null) return;
-            if (IsLive)
-                RunOnMainThread(t => NativeMethods.wry_tray_set_title_direct(t._nativePtr, value));
-            else
-                NativeMethods.wry_tray_set_title(_app.Handle, _trayId, value);
+            RunOnMainThread(t => NativeMethods.wry_tray_set_title(t._nativePtr, value));
         }
     }
 
@@ -76,10 +130,7 @@ public sealed class WryTrayIcon
         set
         {
             var handle = value?.ConsumeHandle() ?? 0;
-            if (IsLive)
-                RunOnMainThread(t => NativeMethods.wry_tray_set_menu_direct(t._nativePtr, handle));
-            else
-                NativeMethods.wry_tray_set_menu(_app.Handle, _trayId, handle);
+            RunOnMainThread(t => NativeMethods.wry_tray_set_menu(t._nativePtr, handle));
         }
     }
 
@@ -89,25 +140,13 @@ public sealed class WryTrayIcon
     /// </summary>
     public bool MenuOnLeftClick
     {
-        set
-        {
-            if (IsLive)
-                RunOnMainThread(t => NativeMethods.wry_tray_set_menu_on_left_click_direct(t._nativePtr, value));
-            else
-                NativeMethods.wry_tray_set_menu_on_left_click(_app.Handle, _trayId, value);
-        }
+        set => RunOnMainThread(t => NativeMethods.wry_tray_set_menu_on_left_click(t._nativePtr, value));
     }
 
     /// <summary>Set the visibility of the tray icon.</summary>
     public bool Visible
     {
-        set
-        {
-            if (IsLive)
-                RunOnMainThread(t => NativeMethods.wry_tray_set_visible_direct(t._nativePtr, value));
-            else
-                NativeMethods.wry_tray_set_visible(_app.Handle, _trayId, value);
-        }
+        set => RunOnMainThread(t => NativeMethods.wry_tray_set_visible(t._nativePtr, value));
     }
 
     /// <summary>
@@ -116,13 +155,7 @@ public sealed class WryTrayIcon
     /// </summary>
     public bool IconIsTemplate
     {
-        set
-        {
-            if (IsLive)
-                RunOnMainThread(t => NativeMethods.wry_tray_set_icon_as_template_direct(t._nativePtr, value));
-            else
-                NativeMethods.wry_tray_set_icon_as_template(_app.Handle, _trayId, value);
-        }
+        set => RunOnMainThread(t => NativeMethods.wry_tray_set_icon_as_template(t._nativePtr, value));
     }
 
     // =======================================================================
@@ -137,20 +170,12 @@ public sealed class WryTrayIcon
     /// <param name="height">Image height in pixels.</param>
     public unsafe void SetIcon(byte[] rgba, int width, int height)
     {
-        if (IsLive)
+        var copy = (byte[])rgba.Clone();
+        RunOnMainThread(t =>
         {
-            var copy = (byte[])rgba.Clone();
-            RunOnMainThread(t =>
-            {
-                fixed (byte* ptr = copy)
-                    NativeMethods.wry_tray_set_icon_direct(t._nativePtr, (nint)ptr, copy.Length, width, height);
-            });
-        }
-        else
-        {
-            fixed (byte* ptr = rgba)
-                NativeMethods.wry_tray_set_icon(_app.Handle, _trayId, (nint)ptr, rgba.Length, width, height);
-        }
+            fixed (byte* ptr = copy)
+                NativeMethods.wry_tray_set_icon(t._nativePtr, (nint)ptr, copy.Length, width, height);
+        });
     }
 
     /// <summary>
@@ -160,20 +185,12 @@ public sealed class WryTrayIcon
     /// <param name="data">Encoded image file bytes.</param>
     public unsafe void SetIconFromBytes(byte[] data)
     {
-        if (IsLive)
+        var copy = (byte[])data.Clone();
+        RunOnMainThread(t =>
         {
-            var copy = (byte[])data.Clone();
-            RunOnMainThread(t =>
-            {
-                fixed (byte* ptr = copy)
-                    NativeMethods.wry_tray_set_icon_from_bytes_direct(t._nativePtr, (nint)ptr, copy.Length);
-            });
-        }
-        else
-        {
-            fixed (byte* ptr = data)
-                NativeMethods.wry_tray_set_icon_from_bytes(_app.Handle, _trayId, (nint)ptr, data.Length);
-        }
+            fixed (byte* ptr = copy)
+                NativeMethods.wry_tray_set_icon_from_bytes(t._nativePtr, (nint)ptr, copy.Length);
+        });
     }
 
     // =======================================================================
@@ -213,24 +230,8 @@ public sealed class WryTrayIcon
     }
 
     // =======================================================================
-    // Internal: callback registration & pointer capture
+    // Internal: pointer capture
     // =======================================================================
-
-    /// <summary>Register native event callbacks. Called by WryApp before Run().</summary>
-    internal unsafe void RegisterNativeCallbacks()
-    {
-        var ctx = GCHandlePtr;
-
-        {
-            delegate* unmanaged[Cdecl]<int, double, double, double, double, uint, uint, int, int, nint, void> fp = &TrayEventBridge;
-            NativeMethods.wry_tray_on_event(_app.Handle, _trayId, (nint)fp, ctx);
-        }
-
-        {
-            delegate* unmanaged[Cdecl]<nint, nint, void> fp = &MenuEventBridge;
-            NativeMethods.wry_tray_on_menu_event(_app.Handle, _trayId, (nint)fp, ctx);
-        }
-    }
 
     /// <summary>Queue a dispatch to capture the native tray pointer after Init.</summary>
     internal unsafe void QueuePointerCapture()
@@ -253,14 +254,6 @@ public sealed class WryTrayIcon
             _gcHandle.Free();
     }
 
-    private void EnsureLive([CallerMemberName] string? caller = null)
-    {
-        if (!IsLive)
-            throw new InvalidOperationException(
-                $"Cannot call {caller} before the tray icon is live. " +
-                "Use this method from an event handler after WryApp.Run() starts.");
-    }
-
     // =======================================================================
     // Static unmanaged callback bridges
     // =======================================================================
@@ -280,7 +273,7 @@ public sealed class WryTrayIcon
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static void TrayEventBridge(
+    internal static void TrayEventBridge(
         int eventType, double x, double y,
         double iconX, double iconY, uint iconW, uint iconH,
         int button, int buttonState, nint ctx)
@@ -298,7 +291,7 @@ public sealed class WryTrayIcon
     }
 
     [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
-    private static void MenuEventBridge(nint itemId, nint ctx)
+    internal static void MenuEventBridge(nint itemId, nint ctx)
     {
         if (Recover(ctx) is { } tray)
         {

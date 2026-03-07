@@ -980,6 +980,7 @@ pub struct WryApp {
     payloads: HashMap<usize, WindowCreatePayload>,
     next_window_id: usize,
     pub(crate) trays: HashMap<usize, WryTray>,
+    pub(crate) tray_payloads: HashMap<usize, tray::TrayCreatePayload>,
     pub(crate) next_tray_id: usize,
     exit_requested_handler: Option<(ExitRequestedCallback, usize)>,
     /// Set to true when the event loop is running (inside run_return). Used to decide initial vs dynamic window creation.
@@ -1033,6 +1034,7 @@ pub extern "C" fn wry_app_new() -> *mut WryApp {
         payloads: HashMap::new(),
         next_window_id: 1,
         trays: HashMap::new(),
+        tray_payloads: HashMap::new(),
         next_tray_id: 1,
         exit_requested_handler: None,
         run_started: Arc::new(AtomicBool::new(false)),
@@ -1064,6 +1066,7 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
 
     // Move trays out of the app struct.
     let mut pending_trays: Vec<WryTray> = app.trays.drain().map(|(_, t)| t).collect();
+    let mut pending_tray_payloads: HashMap<usize, tray::TrayCreatePayload> = app.tray_payloads.drain().collect();
     let mut live_trays: HashMap<usize, WryTray> = HashMap::new();
     // Map from menu item string ID to tray usize ID for event routing.
     let mut menu_id_to_tray: HashMap<String, usize> = HashMap::new();
@@ -1126,7 +1129,9 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                 // Materialize all pending tray icons.
                 for mut tray in pending_trays.drain(..) {
                     let our_id = tray.id;
-                    tray.create();
+                    if let Some(payload) = pending_tray_payloads.remove(&our_id) {
+                        tray.create(&payload);
+                    }
                     for mid in &tray.menu_item_ids {
                         menu_id_to_tray.insert(mid.clone(), our_id);
                     }

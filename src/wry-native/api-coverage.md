@@ -204,17 +204,17 @@ All dialog functions accept an optional `win` parameter (pointer to `WryWindow`,
 
 | Category | tray-icon API | Covered? | wry-native / Notes |
 |----------|---------------|:--------:|--------------------|
-| **Lifecycle** | `TrayIconBuilder::new()` | ✓ | `wry_tray_new` (pre-run), creates pending tray; materialized at Init |
-| **Builder** | `.with_tooltip()` | ✓ | `wry_tray_set_tooltip` / `wry_tray_set_tooltip_direct` |
-| **Builder** | `.with_title()` | ✓ | `wry_tray_set_title` / `wry_tray_set_title_direct` (macOS) |
-| **Builder** | `.with_icon()` | ✓ | `wry_tray_set_icon` (RGBA) / `wry_tray_set_icon_from_bytes` (encoded image) |
-| **Builder** | `.with_menu()` | ✓ | `wry_tray_set_menu` / `wry_tray_set_menu_direct` |
-| **Builder** | `.with_icon_as_template()` | ✓ | `wry_tray_set_icon_as_template` / `_direct` (macOS) |
-| **Builder** | `.with_menu_on_left_click()` | ✓ | `wry_tray_set_menu_on_left_click` / `_direct` |
-| **TrayIcon** | `set_visible()` | ✓ | `wry_tray_set_visible` / `wry_tray_set_visible_direct` |
+| **Lifecycle** | `TrayIconBuilder::new()` | ✓ | `wry_tray_create(app, opts)` with `WryTrayCreateOptions` struct (tooltip, title, icon, menu, visibility, callbacks); materialized at Init |
+| **Builder** | `.with_tooltip()` | ✓ | `WryTrayCreateOptions.tooltip` (create) / `wry_tray_set_tooltip` (runtime) |
+| **Builder** | `.with_title()` | ✓ | `WryTrayCreateOptions.title` (create) / `wry_tray_set_title` (runtime, macOS) |
+| **Builder** | `.with_icon()` | ✓ | `WryTrayCreateOptions.icon_data` (create, encoded image) / `wry_tray_set_icon` (RGBA), `wry_tray_set_icon_from_bytes` (runtime) |
+| **Builder** | `.with_menu()` | ✓ | `WryTrayCreateOptions.menu` (create) / `wry_tray_set_menu` (runtime) |
+| **Builder** | `.with_icon_as_template()` | ✓ | `WryTrayCreateOptions.icon_is_template` (create) / `wry_tray_set_icon_as_template` (runtime, macOS) |
+| **Builder** | `.with_menu_on_left_click()` | ✓ | `WryTrayCreateOptions.menu_on_left_click` (create) / `wry_tray_set_menu_on_left_click` (runtime) |
+| **TrayIcon** | `set_visible()` | ✓ | `WryTrayCreateOptions.visible` (create) / `wry_tray_set_visible` (runtime) |
 | **TrayIcon** | (removal) | ✓ | `wry_tray_remove` - removes from event loop, triggers exit check |
-| **Events** | `TrayIconEvent` | ✓ | `wry_tray_on_event` - Click, DoubleClick, Enter, Move, Leave with position, icon rect, button, button state |
-| **Events** | `MenuEvent` | ✓ | `wry_tray_on_menu_event` - menu item ID string |
+| **Events** | `TrayIconEvent` | ✓ | `WryTrayCreateOptions.event_callback` - Click, DoubleClick, Enter, Move, Leave with position, icon rect, button, button state |
+| **Events** | `MenuEvent` | ✓ | `WryTrayCreateOptions.menu_event_callback` - menu item ID string |
 | **Threading** | (cross-thread) | ✓ | `wry_tray_dispatch` |
 | **Menu** | `Menu::new()` | ✓ | `wry_tray_menu_new` |
 | **Menu** | `MenuItem` | ✓ | `wry_tray_menu_add_item(id, label, enabled)` |

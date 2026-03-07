@@ -447,19 +447,74 @@ public sealed class WryApp : IDisposable
     }
 
     /// <summary>
-    /// Create a new tray icon. Configure it with properties before calling <see cref="Run"/>.
+    /// Create a new tray icon with all configuration in one call.
+    /// The tray is materialized when <see cref="Run"/> is called.
+    /// Event handlers can be attached to the returned <see cref="WryTrayIcon"/> before or after Run.
     /// </summary>
-    public WryTrayIcon CreateTrayIcon()
+    /// <param name="options">Creation options. Must not be null.</param>
+    public unsafe WryTrayIcon CreateTrayIcon(WryTrayIconCreateOptions options)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        ArgumentNullException.ThrowIfNull(options);
 
-        var id = NativeMethods.wry_tray_new(Handle);
-        if (id == 0)
-            throw new InvalidOperationException("Failed to create native tray icon.");
+        // Pre-allocate the tray so we can pass its GCHandle as callback context.
+        // The id (0) is a placeholder; we set it after the native call returns.
+        var tray = new WryTrayIcon(this, 0);
+        var ctx = tray.GCHandlePtr;
 
-        var tray = new WryTrayIcon(this, id);
-        _trays.Add(tray);
-        return tray;
+        nint tooltipPtr = 0, titlePtr = 0;
+        GCHandle iconHandle = default;
+
+        try
+        {
+            if (!string.IsNullOrEmpty(options.Tooltip)) tooltipPtr = Marshal.StringToCoTaskMemUTF8(options.Tooltip);
+            if (!string.IsNullOrEmpty(options.Title)) titlePtr = Marshal.StringToCoTaskMemUTF8(options.Title);
+
+            nint iconDataPtr = 0;
+            int iconDataLen = 0;
+            if (options.IconData is { Length: > 0 } iconBytes)
+            {
+                iconHandle = GCHandle.Alloc(iconBytes, GCHandleType.Pinned);
+                iconDataPtr = iconHandle.AddrOfPinnedObject();
+                iconDataLen = iconBytes.Length;
+            }
+
+            delegate* unmanaged[Cdecl]<int, double, double, double, double, uint, uint, int, int, nint, void> trayEventFp = &WryTrayIcon.TrayEventBridge;
+            delegate* unmanaged[Cdecl]<nint, nint, void> menuEventFp = &WryTrayIcon.MenuEventBridge;
+
+            var native = new NativeMethods.WryTrayCreateOptionsNative
+            {
+                Tooltip = tooltipPtr,
+                Title = titlePtr,
+                IconData = iconDataPtr,
+                IconDataLen = iconDataLen,
+                Menu = options.Menu?.ConsumeHandle() ?? 0,
+                MenuOnLeftClick = options.MenuOnLeftClick ? 1 : 0,
+                Visible = options.Visible ? 1 : 0,
+                IconIsTemplate = options.IconIsTemplate ? 1 : 0,
+                EventCallback = (nint)trayEventFp,
+                EventCtx = ctx,
+                MenuEventCallback = (nint)menuEventFp,
+                MenuEventCtx = ctx,
+            };
+
+            var id = NativeMethods.wry_tray_create(Handle, (nint)(&native));
+            if (id == 0)
+            {
+                tray.Cleanup();
+                throw new InvalidOperationException("Failed to create native tray icon.");
+            }
+
+            tray.SetTrayId(id);
+            _trays.Add(tray);
+            return tray;
+        }
+        finally
+        {
+            if (tooltipPtr != 0) Marshal.FreeCoTaskMem(tooltipPtr);
+            if (titlePtr != 0) Marshal.FreeCoTaskMem(titlePtr);
+            if (iconHandle.IsAllocated) iconHandle.Free();
+        }
     }
 
     /// <summary>
@@ -491,10 +546,6 @@ public sealed class WryApp : IDisposable
     public unsafe void Run()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
-
-        // Register native callbacks for tray icons (window callbacks are passed at create time).
-        foreach (var tray in _trays)
-            tray.RegisterNativeCallbacks();
 
         // Register the exit-requested callback.
         delegate* unmanaged[Cdecl]<byte, int, nint, byte> fp = &ExitRequestedBridge;

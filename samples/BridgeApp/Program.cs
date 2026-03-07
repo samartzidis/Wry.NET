@@ -44,12 +44,6 @@ namespace SampleApp
             using var app = new WryApp();
 
             // --- Tray icon (set up before Run so it's ready) ---
-            var tray = app.CreateTrayIcon();
-            tray.Tooltip = "Wry.NET Bridge App";
-
-            if (File.Exists(iconPath))
-                tray.SetIconFromBytes(File.ReadAllBytes(iconPath));
-
             var menu = new WryTrayMenu();
             menu.AddItem("show", "Show Window");
             menu.AddItem("hide", "Hide Window");
@@ -57,7 +51,13 @@ namespace SampleApp
             menu.AddItem("new_window", "New Window");
             menu.AddSeparator();
             menu.AddItem("quit", "Quit");
-            tray.Menu = menu;
+
+            var tray = app.CreateTrayIcon(new WryTrayIconCreateOptions
+            {
+                Tooltip = "Wry.NET Bridge App",
+                IconData = File.Exists(iconPath) ? File.ReadAllBytes(iconPath) : null,
+                Menu = menu,
+            });
 
             app.CreateWindow(options: options, onCreated: window =>
             {

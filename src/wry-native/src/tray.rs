@@ -126,20 +126,89 @@ impl WryTrayMenu {
 }
 
 // ---------------------------------------------------------------------------
+// WryTrayCreateOptions -- #[repr(C)] struct for create-with-options pattern
+// ---------------------------------------------------------------------------
+
+#[repr(C)]
+pub struct WryTrayCreateOptions {
+    pub tooltip: *const c_char,
+    pub title: *const c_char,
+    pub icon_data: *const u8,
+    pub icon_data_len: c_int,
+    pub menu: *mut WryTrayMenu,
+    pub menu_on_left_click: c_int, // 1 = true (default)
+    pub visible: c_int,            // 1 = true (default)
+    pub icon_is_template: c_int,   // 0 = false (default)
+    pub event_callback: *const c_void,
+    pub event_ctx: *mut c_void,
+    pub menu_event_callback: *const c_void,
+    pub menu_event_ctx: *mut c_void,
+}
+
+/// Parsed payload stored until the event loop materializes the tray icon.
+pub(crate) struct TrayCreatePayload {
+    tooltip: Option<String>,
+    title: Option<String>,
+    icon_rgba: Option<(Vec<u8>, u32, u32)>,
+    menu: Option<Box<WryTrayMenu>>,
+    menu_on_left_click: bool,
+    visible: bool,
+    icon_is_template: bool,
+}
+
+impl TrayCreatePayload {
+    fn from_options(opts: &WryTrayCreateOptions) -> Self {
+        let tooltip = {
+            let s = unsafe { c_str_to_string(opts.tooltip) };
+            if s.is_empty() { None } else { Some(s) }
+        };
+        let title = {
+            let s = unsafe { c_str_to_string(opts.title) };
+            if s.is_empty() { None } else { Some(s) }
+        };
+
+        let icon_rgba = if !opts.icon_data.is_null() && opts.icon_data_len > 0 {
+            let bytes = unsafe { std::slice::from_raw_parts(opts.icon_data, opts.icon_data_len as usize) };
+            match image::load_from_memory(bytes) {
+                Ok(img) => {
+                    use image::GenericImageView;
+                    let rgba = img.to_rgba8();
+                    let (w, h) = img.dimensions();
+                    Some((rgba.into_raw(), w, h))
+                }
+                Err(e) => {
+                    eprintln!("[wry-native] tray icon image decode failed: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let menu = if opts.menu.is_null() {
+            None
+        } else {
+            Some(unsafe { Box::from_raw(opts.menu) })
+        };
+
+        Self {
+            tooltip,
+            title,
+            icon_rgba,
+            menu,
+            menu_on_left_click: opts.menu_on_left_click != 0,
+            visible: opts.visible != 0,
+            icon_is_template: opts.icon_is_template != 0,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // WryTray -- per-tray-icon state
 // ---------------------------------------------------------------------------
 
 pub struct WryTray {
     pub(crate) id: usize,
-
-    // --- Pending config (set before app_run) ---
-    pending_tooltip: Option<String>,
-    pending_title: Option<String>,
-    pending_icon_rgba: Option<(Vec<u8>, u32, u32)>,
-    pending_menu: Option<Box<WryTrayMenu>>,
-    pending_menu_on_left_click: bool,
-    pending_visible: bool,
-    pending_icon_is_template: bool,
 
     // --- Callbacks ---
     event_handler: Option<(TrayEventCallback, usize)>,
@@ -154,13 +223,6 @@ impl WryTray {
     pub(crate) fn new(id: usize) -> Self {
         Self {
             id,
-            pending_tooltip: None,
-            pending_title: None,
-            pending_icon_rgba: None,
-            pending_menu: None,
-            pending_menu_on_left_click: true,
-            pending_visible: true,
-            pending_icon_is_template: false,
             event_handler: None,
             menu_event_handler: None,
             tray: None,
@@ -168,33 +230,33 @@ impl WryTray {
         }
     }
 
-    pub(crate) fn create(&mut self) {
+    pub(crate) fn create(&mut self, payload: &TrayCreatePayload) {
         let tray_id = tray_icon::TrayIconId::new(self.id.to_string());
         let mut builder = TrayIconBuilder::new().with_id(tray_id);
 
-        if let Some(ref tooltip) = self.pending_tooltip {
+        if let Some(ref tooltip) = payload.tooltip {
             builder = builder.with_tooltip(tooltip);
         }
-        if let Some(ref title) = self.pending_title {
+        if let Some(ref title) = payload.title {
             builder = builder.with_title(title);
         }
-        if let Some((ref rgba, w, h)) = self.pending_icon_rgba {
+        if let Some((ref rgba, w, h)) = payload.icon_rgba {
             match tray_icon::Icon::from_rgba(rgba.clone(), w, h) {
                 Ok(icon) => { builder = builder.with_icon(icon); }
                 Err(e) => { eprintln!("[wry-native] tray icon from_rgba failed: {}", e); }
             }
         }
-        if let Some(ref menu_data) = self.pending_menu {
+        if let Some(ref menu_data) = payload.menu {
             let muda_menu = menu_data.build();
             menu_data.collect_ids(&mut self.menu_item_ids);
             builder = builder.with_menu(Box::new(muda_menu));
         }
-        builder = builder.with_menu_on_left_click(self.pending_menu_on_left_click);
-        builder = builder.with_icon_as_template(self.pending_icon_is_template);
+        builder = builder.with_menu_on_left_click(payload.menu_on_left_click);
+        builder = builder.with_icon_as_template(payload.icon_is_template);
 
         match builder.build() {
             Ok(tray) => {
-                if !self.pending_visible {
+                if !payload.visible {
                     log_err!(tray.set_visible(false), "tray set_visible(false)");
                 }
                 self.tray = Some(tray);
@@ -284,20 +346,6 @@ pub(crate) fn setup_tray_event_handlers(
     }));
 }
 
-// ---------------------------------------------------------------------------
-// Helper: look up a pending WryTray by ID (pre-run only).
-// ---------------------------------------------------------------------------
-
-fn get_pending_tray(app: *mut WryApp, tray_id: usize) -> Option<&'static mut WryTray> {
-    if app.is_null() {
-        return None;
-    }
-    let app = unsafe { &mut *app };
-    app.trays.get_mut(&tray_id).map(|t| {
-        unsafe { &mut *(t as *mut WryTray) }
-    })
-}
-
 // ===========================================================================
 // EXPORTED C API
 // ===========================================================================
@@ -307,18 +355,13 @@ fn get_pending_tray(app: *mut WryApp, tray_id: usize) -> Option<&'static mut Wry
 // ---------------------------------------------------------------------------
 
 /// Create a new tray menu. Returns an opaque handle.
-/// Free with `wry_tray_menu_destroy` if not consumed by `wry_tray_set_menu`.
+/// Free with `wry_tray_menu_destroy` if not consumed by a tray create/set call.
 #[no_mangle]
 pub extern "C" fn wry_tray_menu_new() -> *mut WryTrayMenu {
     Box::into_raw(Box::new(WryTrayMenu { items: Vec::new() }))
 }
 
 /// Add a clickable menu item.
-///
-/// - `menu`: menu handle from `wry_tray_menu_new` or `wry_tray_menu_add_submenu`
-/// - `id`: unique string ID (returned in the menu event callback)
-/// - `label`: display text
-/// - `enabled`: whether the item is clickable
 #[no_mangle]
 pub extern "C" fn wry_tray_menu_add_item(
     menu: *mut WryTrayMenu,
@@ -334,11 +377,6 @@ pub extern "C" fn wry_tray_menu_add_item(
 }
 
 /// Add a checkable menu item.
-///
-/// - `id`: unique string ID
-/// - `label`: display text
-/// - `checked`: initial checked state
-/// - `enabled`: whether the item is clickable
 #[no_mangle]
 pub extern "C" fn wry_tray_menu_add_check_item(
     menu: *mut WryTrayMenu,
@@ -385,8 +423,8 @@ pub extern "C" fn wry_tray_menu_add_submenu(
     }
 }
 
-/// Free a tray menu that was NOT consumed by `wry_tray_set_menu`.
-/// Do NOT call this on menus that were already passed to `wry_tray_set_menu`
+/// Free a tray menu that was NOT consumed by tray creation or set_menu.
+/// Do NOT call this on menus already passed to a create/set call,
 /// or on submenu pointers returned by `wry_tray_menu_add_submenu`.
 #[no_mangle]
 pub extern "C" fn wry_tray_menu_destroy(menu: *mut WryTrayMenu) {
@@ -396,207 +434,45 @@ pub extern "C" fn wry_tray_menu_destroy(menu: *mut WryTrayMenu) {
 }
 
 // ---------------------------------------------------------------------------
-// Tray lifecycle (pre-run configuration)
+// Tray creation (create-with-options pattern)
 // ---------------------------------------------------------------------------
 
-/// Create a new tray icon handle. Returns an opaque tray ID used in
-/// subsequent calls. Returns 0 on failure. The tray is materialized
-/// when `wry_app_run()` is called.
+/// Create a new tray icon with all configuration in one call.
+/// Returns an opaque tray ID (>0) on success, 0 on failure.
+/// The tray is materialized when `wry_app_run()` is called.
+/// The options struct's `menu` field is consumed (ownership transferred).
 #[no_mangle]
-pub extern "C" fn wry_tray_new(app: *mut WryApp) -> usize {
-    if app.is_null() { return 0; }
+pub extern "C" fn wry_tray_create(app: *mut WryApp, opts: *const WryTrayCreateOptions) -> usize {
+    if app.is_null() || opts.is_null() { return 0; }
     let app = unsafe { &mut *app };
+    let opts = unsafe { &*opts };
+
     let id = app.next_tray_id;
     app.next_tray_id += 1;
-    let tray = WryTray::new(id);
+    let mut tray = WryTray::new(id);
+
+    if !opts.event_callback.is_null() {
+        let cb: TrayEventCallback = unsafe { std::mem::transmute(opts.event_callback) };
+        tray.event_handler = Some((cb, opts.event_ctx as usize));
+    }
+    if !opts.menu_event_callback.is_null() {
+        let cb: TrayMenuEventCallback = unsafe { std::mem::transmute(opts.menu_event_callback) };
+        tray.menu_event_handler = Some((cb, opts.menu_event_ctx as usize));
+    }
+
+    let payload = TrayCreatePayload::from_options(opts);
     app.trays.insert(id, tray);
+    app.tray_payloads.insert(id, payload);
     id
 }
 
-/// Set the tray icon from raw RGBA pixel data. Must be called before `wry_app_run()`.
-///
-/// - `rgba`: pointer to RGBA pixel data (4 bytes per pixel, row-major)
-/// - `rgba_len`: total byte length (must equal width * height * 4)
-/// - `width`, `height`: icon dimensions in pixels
+// ---------------------------------------------------------------------------
+// Tray runtime setters (operate on live WryTray pointer)
+// ---------------------------------------------------------------------------
+
+/// Set the tray icon from raw RGBA pixel data.
 #[no_mangle]
 pub extern "C" fn wry_tray_set_icon(
-    app: *mut WryApp,
-    tray_id: usize,
-    rgba: *const u8,
-    rgba_len: c_int,
-    width: c_int,
-    height: c_int,
-) {
-    if let Some(tray) = get_pending_tray(app, tray_id) {
-        if rgba.is_null() || rgba_len <= 0 || width <= 0 || height <= 0 {
-            tray.pending_icon_rgba = None;
-            return;
-        }
-        let data = unsafe { std::slice::from_raw_parts(rgba, rgba_len as usize) }.to_vec();
-        tray.pending_icon_rgba = Some((data, width as u32, height as u32));
-    }
-}
-
-/// Set the tray icon from encoded image file bytes (PNG, ICO, JPEG, BMP, GIF).
-/// Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_tray_set_icon_from_bytes(
-    app: *mut WryApp,
-    tray_id: usize,
-    data: *const u8,
-    data_len: c_int,
-) {
-    if let Some(tray) = get_pending_tray(app, tray_id) {
-        if data.is_null() || data_len <= 0 {
-            tray.pending_icon_rgba = None;
-            return;
-        }
-        let bytes = unsafe { std::slice::from_raw_parts(data, data_len as usize) };
-        match image::load_from_memory(bytes) {
-            Ok(img) => {
-                use image::GenericImageView;
-                let rgba = img.to_rgba8();
-                let (w, h) = img.dimensions();
-                tray.pending_icon_rgba = Some((rgba.into_raw(), w, h));
-            }
-            Err(e) => {
-                eprintln!("[wry-native] tray icon image decode failed: {}", e);
-            }
-        }
-    }
-}
-
-/// Set the tray tooltip. Must be called before `wry_app_run()`.
-///
-/// Platform: Linux - unsupported.
-#[no_mangle]
-pub extern "C" fn wry_tray_set_tooltip(
-    app: *mut WryApp,
-    tray_id: usize,
-    tooltip: *const c_char,
-) {
-    if let Some(tray) = get_pending_tray(app, tray_id) {
-        let s = unsafe { c_str_to_string(tooltip) };
-        tray.pending_tooltip = if s.is_empty() { None } else { Some(s) };
-    }
-}
-
-/// Set the tray title. Must be called before `wry_app_run()`.
-///
-/// Platform: macOS and Linux only. Windows - unsupported.
-#[no_mangle]
-pub extern "C" fn wry_tray_set_title(
-    app: *mut WryApp,
-    tray_id: usize,
-    title: *const c_char,
-) {
-    if let Some(tray) = get_pending_tray(app, tray_id) {
-        let s = unsafe { c_str_to_string(title) };
-        tray.pending_title = if s.is_empty() { None } else { Some(s) };
-    }
-}
-
-/// Assign a context menu to the tray icon. Takes ownership of the menu -
-/// do NOT call `wry_tray_menu_destroy` on it after this.
-/// Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_tray_set_menu(
-    app: *mut WryApp,
-    tray_id: usize,
-    menu: *mut WryTrayMenu,
-) {
-    if let Some(tray) = get_pending_tray(app, tray_id) {
-        if menu.is_null() {
-            tray.pending_menu = None;
-        } else {
-            tray.pending_menu = Some(unsafe { Box::from_raw(menu) });
-        }
-    }
-}
-
-/// Whether to show the tray menu on left click (default: true).
-/// Must be called before `wry_app_run()`.
-///
-/// Platform: Linux - unsupported.
-#[no_mangle]
-pub extern "C" fn wry_tray_set_menu_on_left_click(
-    app: *mut WryApp,
-    tray_id: usize,
-    enable: bool,
-) {
-    if let Some(tray) = get_pending_tray(app, tray_id) {
-        tray.pending_menu_on_left_click = enable;
-    }
-}
-
-/// Set initial tray visibility (default: true).
-/// Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_tray_set_visible(
-    app: *mut WryApp,
-    tray_id: usize,
-    visible: bool,
-) {
-    if let Some(tray) = get_pending_tray(app, tray_id) {
-        tray.pending_visible = visible;
-    }
-}
-
-/// Use the icon as a template icon. macOS only.
-/// Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_tray_set_icon_as_template(
-    app: *mut WryApp,
-    tray_id: usize,
-    is_template: bool,
-) {
-    if let Some(tray) = get_pending_tray(app, tray_id) {
-        tray.pending_icon_is_template = is_template;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Tray callbacks (pre-run)
-// ---------------------------------------------------------------------------
-
-/// Register a callback for tray icon events (click, double-click, enter, move, leave).
-/// Must be called before `wry_app_run()`.
-///
-/// Platform: Linux - events are not emitted.
-#[no_mangle]
-pub extern "C" fn wry_tray_on_event(
-    app: *mut WryApp,
-    tray_id: usize,
-    callback: TrayEventCallback,
-    ctx: *mut c_void,
-) {
-    if let Some(tray) = get_pending_tray(app, tray_id) {
-        tray.event_handler = Some((callback, ctx as usize));
-    }
-}
-
-/// Register a callback for tray context menu item clicks.
-/// The callback receives the item's string ID.
-/// Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_tray_on_menu_event(
-    app: *mut WryApp,
-    tray_id: usize,
-    callback: TrayMenuEventCallback,
-    ctx: *mut c_void,
-) {
-    if let Some(tray) = get_pending_tray(app, tray_id) {
-        tray.menu_event_handler = Some((callback, ctx as usize));
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Tray post-run (direct) -- call from dispatch callback or event handler
-// ---------------------------------------------------------------------------
-
-/// Set the tray icon from raw RGBA pixel data at runtime.
-#[no_mangle]
-pub extern "C" fn wry_tray_set_icon_direct(
     tray: *mut WryTray,
     rgba: *const u8,
     rgba_len: c_int,
@@ -613,14 +489,14 @@ pub extern "C" fn wry_tray_set_icon_direct(
         let data = unsafe { std::slice::from_raw_parts(rgba, rgba_len as usize) }.to_vec();
         match tray_icon::Icon::from_rgba(data, width as u32, height as u32) {
             Ok(icon) => { log_err!(t.set_icon(Some(icon)), "tray set_icon"); }
-            Err(e) => { eprintln!("[wry-native] tray set_icon_direct from_rgba failed: {}", e); }
+            Err(e) => { eprintln!("[wry-native] tray set_icon from_rgba failed: {}", e); }
         }
     }
 }
 
-/// Set the tray icon from encoded image file bytes at runtime.
+/// Set the tray icon from encoded image file bytes.
 #[no_mangle]
-pub extern "C" fn wry_tray_set_icon_from_bytes_direct(
+pub extern "C" fn wry_tray_set_icon_from_bytes(
     tray: *mut WryTray,
     data: *const u8,
     data_len: c_int,
@@ -650,11 +526,9 @@ pub extern "C" fn wry_tray_set_icon_from_bytes_direct(
     }
 }
 
-/// Set the tray tooltip at runtime.
-///
-/// Platform: Linux - unsupported.
+/// Set the tray tooltip.
 #[no_mangle]
-pub extern "C" fn wry_tray_set_tooltip_direct(tray: *mut WryTray, tooltip: *const c_char) {
+pub extern "C" fn wry_tray_set_tooltip(tray: *mut WryTray, tooltip: *const c_char) {
     if tray.is_null() { return; }
     let tray = unsafe { &mut *tray };
     if let Some(ref t) = tray.tray {
@@ -664,11 +538,9 @@ pub extern "C" fn wry_tray_set_tooltip_direct(tray: *mut WryTray, tooltip: *cons
     }
 }
 
-/// Set the tray title at runtime.
-///
-/// Platform: macOS and Linux only. Windows - unsupported.
+/// Set the tray title. macOS and Linux only.
 #[no_mangle]
-pub extern "C" fn wry_tray_set_title_direct(tray: *mut WryTray, title: *const c_char) {
+pub extern "C" fn wry_tray_set_title(tray: *mut WryTray, title: *const c_char) {
     if tray.is_null() { return; }
     let tray = unsafe { &mut *tray };
     if let Some(ref t) = tray.tray {
@@ -678,9 +550,9 @@ pub extern "C" fn wry_tray_set_title_direct(tray: *mut WryTray, title: *const c_
     }
 }
 
-/// Show or hide the tray icon at runtime.
+/// Show or hide the tray icon.
 #[no_mangle]
-pub extern "C" fn wry_tray_set_visible_direct(tray: *mut WryTray, visible: bool) {
+pub extern "C" fn wry_tray_set_visible(tray: *mut WryTray, visible: bool) {
     if tray.is_null() { return; }
     let tray = unsafe { &mut *tray };
     if let Some(ref t) = tray.tray {
@@ -688,9 +560,9 @@ pub extern "C" fn wry_tray_set_visible_direct(tray: *mut WryTray, visible: bool)
     }
 }
 
-/// Replace the tray context menu at runtime. Takes ownership of the menu.
+/// Replace the tray context menu. Takes ownership of the menu.
 #[no_mangle]
-pub extern "C" fn wry_tray_set_menu_direct(tray: *mut WryTray, menu: *mut WryTrayMenu) {
+pub extern "C" fn wry_tray_set_menu(tray: *mut WryTray, menu: *mut WryTrayMenu) {
     if tray.is_null() { return; }
     let tray = unsafe { &mut *tray };
     if let Some(ref t) = tray.tray {
@@ -704,11 +576,9 @@ pub extern "C" fn wry_tray_set_menu_direct(tray: *mut WryTray, menu: *mut WryTra
     }
 }
 
-/// Enable or disable showing the tray menu on left click at runtime.
-///
-/// Platform: Linux - unsupported.
+/// Enable or disable showing the tray menu on left click.
 #[no_mangle]
-pub extern "C" fn wry_tray_set_menu_on_left_click_direct(tray: *mut WryTray, enable: bool) {
+pub extern "C" fn wry_tray_set_menu_on_left_click(tray: *mut WryTray, enable: bool) {
     if tray.is_null() { return; }
     let tray = unsafe { &mut *tray };
     if let Some(ref t) = tray.tray {
@@ -716,9 +586,9 @@ pub extern "C" fn wry_tray_set_menu_on_left_click_direct(tray: *mut WryTray, ena
     }
 }
 
-/// Use the icon as a template icon at runtime. macOS only.
+/// Use the icon as a template icon. macOS only.
 #[no_mangle]
-pub extern "C" fn wry_tray_set_icon_as_template_direct(tray: *mut WryTray, is_template: bool) {
+pub extern "C" fn wry_tray_set_icon_as_template(tray: *mut WryTray, is_template: bool) {
     if tray.is_null() { return; }
     let tray = unsafe { &mut *tray };
     if let Some(ref t) = tray.tray {

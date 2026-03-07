@@ -403,73 +403,56 @@ internal static partial class NativeMethods
     internal static partial void wry_tray_menu_destroy(nint menu);
 
     // -----------------------------------------------------------------------
-    // Tray lifecycle (pre-run: app + trayId)
+    // Tray creation (create-with-options)
+    // -----------------------------------------------------------------------
+
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct WryTrayCreateOptionsNative
+    {
+        internal nint Tooltip;
+        internal nint Title;
+        internal nint IconData;
+        internal int IconDataLen;
+        internal nint Menu;
+        internal int MenuOnLeftClick;
+        internal int Visible;
+        internal int IconIsTemplate;
+        internal nint EventCallback;
+        internal nint EventCtx;
+        internal nint MenuEventCallback;
+        internal nint MenuEventCtx;
+    }
+
+    [LibraryImport(LibName)]
+    internal static partial nuint wry_tray_create(nint app, nint opts);
+
+    // -----------------------------------------------------------------------
+    // Tray runtime setters (operate on live WryTray pointer)
     // -----------------------------------------------------------------------
 
     [LibraryImport(LibName)]
-    internal static partial nuint wry_tray_new(nint app);
+    internal static partial void wry_tray_set_icon(nint tray, nint rgba, int rgbaLen, int width, int height);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_tray_set_icon(nint app, nuint trayId, nint rgba, int rgbaLen, int width, int height);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_tray_set_icon_from_bytes(nint app, nuint trayId, nint data, int dataLen);
+    internal static partial void wry_tray_set_icon_from_bytes(nint tray, nint data, int dataLen);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_tray_set_tooltip(nint app, nuint trayId, string tooltip);
+    internal static partial void wry_tray_set_tooltip(nint tray, string tooltip);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_tray_set_title(nint app, nuint trayId, string title);
+    internal static partial void wry_tray_set_title(nint tray, string title);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_tray_set_menu(nint app, nuint trayId, nint menu);
+    internal static partial void wry_tray_set_menu(nint tray, nint menu);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_tray_set_menu_on_left_click(nint app, nuint trayId, [MarshalAs(UnmanagedType.U1)] bool enable);
+    internal static partial void wry_tray_set_menu_on_left_click(nint tray, [MarshalAs(UnmanagedType.U1)] bool enable);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_tray_set_visible(nint app, nuint trayId, [MarshalAs(UnmanagedType.U1)] bool visible);
+    internal static partial void wry_tray_set_visible(nint tray, [MarshalAs(UnmanagedType.U1)] bool visible);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_tray_set_icon_as_template(nint app, nuint trayId, [MarshalAs(UnmanagedType.U1)] bool isTemplate);
-
-    // -----------------------------------------------------------------------
-    // Tray callbacks (pre-run)
-    // -----------------------------------------------------------------------
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_tray_on_event(nint app, nuint trayId, nint callback, nint ctx);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_tray_on_menu_event(nint app, nuint trayId, nint callback, nint ctx);
-
-    // -----------------------------------------------------------------------
-    // Tray post-run direct setters (via WryTray pointer from callbacks/dispatch)
-    // -----------------------------------------------------------------------
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_tray_set_icon_direct(nint tray, nint rgba, int rgbaLen, int width, int height);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_tray_set_icon_from_bytes_direct(nint tray, nint data, int dataLen);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_tray_set_tooltip_direct(nint tray, string tooltip);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_tray_set_title_direct(nint tray, string title);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_tray_set_visible_direct(nint tray, [MarshalAs(UnmanagedType.U1)] bool visible);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_tray_set_menu_direct(nint tray, nint menu);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_tray_set_menu_on_left_click_direct(nint tray, [MarshalAs(UnmanagedType.U1)] bool enable);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_tray_set_icon_as_template_direct(nint tray, [MarshalAs(UnmanagedType.U1)] bool isTemplate);
+    internal static partial void wry_tray_set_icon_as_template(nint tray, [MarshalAs(UnmanagedType.U1)] bool isTemplate);
 
     // -----------------------------------------------------------------------
     // Tray cross-thread dispatch & removal
