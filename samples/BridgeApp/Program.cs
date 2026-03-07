@@ -42,6 +42,11 @@ namespace SampleApp
             using var app = new WryApp();
             var window = app.CreateWindow(null, options);
 
+            app.WindowCreated += (_, e) =>
+            {
+                
+            };
+
             // Attach the bridge (registers IPC handler + init script shims)
             bridge.Attach(window);
 

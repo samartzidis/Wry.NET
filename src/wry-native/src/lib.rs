@@ -29,7 +29,7 @@ use tao::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
 use tao::event::{Event, StartCause, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget};
 use tao::platform::run_return::EventLoopExtRunReturn;
-use tao::window::{Fullscreen, Icon, Window, WindowBuilder as TaoWindowBuilder, WindowId};
+use tao::window::{Fullscreen, Icon, Theme, Window, WindowBuilder as TaoWindowBuilder, WindowId};
 
 use wry::{webview_version, WebContext, WebView, WebViewBuilder};
 
@@ -1940,6 +1940,25 @@ pub extern "C" fn wry_window_get_decorated(win: *mut WryWindow) -> bool {
     }
 }
 
+/// Get current window theme. Returns 0 = auto/unknown, 1 = dark, 2 = light.
+/// Call from a callback with the WryWindow pointer.
+#[no_mangle]
+pub extern "C" fn wry_window_get_theme(win: *mut WryWindow) -> c_int {
+    if win.is_null() {
+        return 0;
+    }
+    let win = unsafe { &*win };
+    if let Some(ref w) = win.window {
+        match w.theme() {
+            Theme::Dark => 1,
+            Theme::Light => 2,
+            _ => 0,
+        }
+    } else {
+        0
+    }
+}
+
 /// Get the DPI scale factor for the window's current monitor.
 /// Returns 1.0 as default if the window hasn't been created yet.
 #[no_mangle]
@@ -2055,6 +2074,59 @@ pub extern "C" fn wry_window_set_position(
     let win = unsafe { &mut *win };
     if let Some(ref window) = win.window {
         window.set_outer_position(LogicalPosition::new(x, y));
+    }
+}
+
+/// Set minimum window inner size. Pass width 0 or height 0 to clear the constraint.
+/// Call from a callback with the WryWindow pointer.
+#[no_mangle]
+pub extern "C" fn wry_window_set_min_size(win: *mut WryWindow, width: c_int, height: c_int) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &*win };
+    if let Some(ref window) = win.window {
+        if width <= 0 || height <= 0 {
+            window.set_min_inner_size::<LogicalSize<u32>>(None);
+        } else {
+            window.set_min_inner_size(Some(LogicalSize::new(width as u32, height as u32)));
+        }
+    }
+}
+
+/// Set maximum window inner size. Pass width 0 or height 0 to clear the constraint.
+/// Call from a callback with the WryWindow pointer.
+#[no_mangle]
+pub extern "C" fn wry_window_set_max_size(win: *mut WryWindow, width: c_int, height: c_int) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &*win };
+    if let Some(ref window) = win.window {
+        if width <= 0 || height <= 0 {
+            window.set_max_inner_size::<LogicalSize<u32>>(None);
+        } else {
+            window.set_max_inner_size(Some(LogicalSize::new(width as u32, height as u32)));
+        }
+    }
+}
+
+/// Set window theme. theme: 0 = auto/system, 1 = dark, 2 = light.
+/// Call from a callback with the WryWindow pointer.
+/// Platform: Windows, Linux, macOS (behavior may be app-wide on some platforms).
+#[no_mangle]
+pub extern "C" fn wry_window_set_theme(win: *mut WryWindow, theme: c_int) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &*win };
+    if let Some(ref window) = win.window {
+        let t = match theme {
+            1 => Some(Theme::Dark),
+            2 => Some(Theme::Light),
+            _ => None,
+        };
+        window.set_theme(t);
     }
 }
 
@@ -2426,6 +2498,63 @@ pub extern "C" fn wry_window_set_background_color(
     let win = unsafe { &*win };
     if let Some(ref wv) = win.webview {
         log_err!(wv.set_background_color((r, g, b, a)), "set_background_color");
+    }
+}
+
+/// Set the window icon from RGBA pixel data at runtime.
+/// Call from a callback or dispatch with the WryWindow pointer.
+/// Pass null / zero length / zero dimensions to clear the icon.
+///
+/// Platform: Windows and Linux only. macOS has no per-window icon.
+#[no_mangle]
+pub extern "C" fn wry_window_set_icon(
+    win: *mut WryWindow,
+    rgba: *const u8,
+    rgba_len: c_int,
+    width: c_int,
+    height: c_int,
+) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &*win };
+    if let Some(ref w) = win.window {
+        if rgba.is_null() || rgba_len <= 0 || width <= 0 || height <= 0 {
+            w.set_window_icon(None);
+            return;
+        }
+        let data = unsafe { std::slice::from_raw_parts(rgba, rgba_len as usize) }.to_vec();
+        match Icon::from_rgba(data, width as u32, height as u32) {
+            Ok(icon) => w.set_window_icon(Some(icon)),
+            Err(e) => eprintln!("[wry-native] wry_window_set_icon: {}", e),
+        }
+    }
+}
+
+/// Set the window icon from encoded image file bytes (PNG, ICO, JPEG, BMP, GIF) at runtime.
+/// Call from a callback or dispatch with the WryWindow pointer.
+/// Pass null or zero length to clear the icon.
+///
+/// Platform: Windows and Linux only. macOS has no per-window icon.
+#[no_mangle]
+pub extern "C" fn wry_window_set_icon_from_bytes(
+    win: *mut WryWindow,
+    data: *const u8,
+    data_len: c_int,
+) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &*win };
+    if let Some(ref w) = win.window {
+        if data.is_null() || data_len <= 0 {
+            w.set_window_icon(None);
+            return;
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(data, data_len as usize) };
+        if let Some(icon) = decode_icon_from_bytes(bytes) {
+            w.set_window_icon(Some(icon));
+        }
     }
 }
 

@@ -144,6 +144,12 @@ internal static partial class NativeMethods
     [LibraryImport(LibName)]
     internal static partial void wry_window_set_prevent_overflow_margin(nint win, int left, int top, int right, int bottom);
 
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_icon(nint win, nint rgba, int rgbaLen, int width, int height);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_icon_from_bytes(nint win, nint data, int dataLen);
+
     // -----------------------------------------------------------------------
     // Window close (post-run, via WryWindow pointer)
     // -----------------------------------------------------------------------
@@ -189,6 +195,9 @@ internal static partial class NativeMethods
     internal static partial bool wry_window_get_decorated(nint win);
 
     [LibraryImport(LibName)]
+    internal static partial int wry_window_get_theme(nint win);
+
+    [LibraryImport(LibName)]
     internal static partial double wry_window_get_screen_dpi(nint win);
 
     [LibraryImport(LibName)]
@@ -212,6 +221,15 @@ internal static partial class NativeMethods
 
     [LibraryImport(LibName)]
     internal static partial void wry_window_set_position(nint win, int x, int y);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_min_size(nint win, int width, int height);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_max_size(nint win, int width, int height);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_theme(nint win, int theme);
 
     [LibraryImport(LibName)]
     internal static partial void wry_window_set_decorations(nint win, [MarshalAs(UnmanagedType.U1)] bool decorations);

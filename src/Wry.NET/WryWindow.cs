@@ -156,6 +156,25 @@ public sealed class WryWindow
         set => NativeMethods.wry_window_set_position(_nativePtr, value.X, value.Y);
     }
 
+    /// <summary>Set minimum window inner size in logical pixels. Use (0, 0) to clear the constraint.</summary>
+    public (int Width, int Height) MinSize
+    {
+        set => NativeMethods.wry_window_set_min_size(_nativePtr, value.Width, value.Height);
+    }
+
+    /// <summary>Set maximum window inner size in logical pixels. Use (0, 0) to clear the constraint.</summary>
+    public (int Width, int Height) MaxSize
+    {
+        set => NativeMethods.wry_window_set_max_size(_nativePtr, value.Width, value.Height);
+    }
+
+    /// <summary>Get or set window theme. Auto = follow system; Dark/Light force a theme. Behavior may be app-wide on Linux/macOS.</summary>
+    public WryTheme Theme
+    {
+        get => (WryTheme)NativeMethods.wry_window_get_theme(_nativePtr);
+        set => NativeMethods.wry_window_set_theme(_nativePtr, (int)value);
+    }
+
     /// <summary>Get or set whether the window is resizable.</summary>
     public bool Resizable
     {
@@ -284,6 +303,51 @@ public sealed class WryWindow
     public WryColor BackgroundColor
     {
         set => NativeMethods.wry_window_set_background_color(_nativePtr, value.R, value.G, value.B, value.A);
+    }
+
+    /// <summary>
+    /// Set the window icon from raw RGBA pixel data (4 bytes per pixel, row-major).
+    /// Pass null or empty to clear. Windows and Linux only; macOS uses the .app bundle icon.
+    /// </summary>
+    public unsafe void SetIcon(byte[]? rgbaData, int width, int height)
+    {
+        if (rgbaData is null || rgbaData.Length == 0)
+        {
+            NativeMethods.wry_window_set_icon(_nativePtr, 0, 0, 0, 0);
+            return;
+        }
+        fixed (byte* ptr = rgbaData)
+        {
+            NativeMethods.wry_window_set_icon(_nativePtr, (nint)ptr, rgbaData.Length, width, height);
+        }
+    }
+
+    /// <summary>
+    /// Set the window icon from encoded image file bytes (PNG, ICO, JPEG, BMP, GIF).
+    /// Pass null or empty to clear. Windows and Linux only; macOS uses the .app bundle icon.
+    /// </summary>
+    public unsafe void SetIcon(byte[]? imageData)
+    {
+        if (imageData is null || imageData.Length == 0)
+        {
+            NativeMethods.wry_window_set_icon_from_bytes(_nativePtr, 0, 0);
+            return;
+        }
+        fixed (byte* ptr = imageData)
+        {
+            NativeMethods.wry_window_set_icon_from_bytes(_nativePtr, (nint)ptr, imageData.Length);
+        }
+    }
+
+    /// <summary>
+    /// Set the window icon from an image file on disk (PNG, ICO, JPEG, BMP, GIF).
+    /// Windows and Linux only; macOS uses the .app bundle icon.
+    /// </summary>
+    public void SetIconFromFile(string filePath)
+    {
+        ArgumentNullException.ThrowIfNull(filePath);
+        var bytes = File.ReadAllBytes(filePath);
+        SetIcon(bytes);
     }
 
     // =======================================================================
