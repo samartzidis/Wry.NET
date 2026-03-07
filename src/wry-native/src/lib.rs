@@ -2447,6 +2447,177 @@ pub extern "C" fn wry_window_dispatch(
 }
 
 // ---------------------------------------------------------------------------
+// Cookies
+// ---------------------------------------------------------------------------
+
+#[derive(serde::Serialize)]
+struct CookieJson {
+    name: String,
+    value: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    domain: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    path: Option<String>,
+    secure: bool,
+    http_only: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    expires: Option<f64>,
+}
+
+fn cookie_to_json(c: &wry::cookie::Cookie<'_>) -> CookieJson {
+    let expires = c.expires().and_then(|exp| match exp {
+        wry::cookie::Expiration::Session => None,
+        wry::cookie::Expiration::DateTime(dt) => Some(dt.unix_timestamp() as f64),
+    });
+    CookieJson {
+        name: c.name().to_owned(),
+        value: c.value().to_owned(),
+        domain: c.domain().map(|s| s.to_owned()),
+        path: c.path().map(|s| s.to_owned()),
+        secure: c.secure().unwrap_or(false),
+        http_only: c.http_only().unwrap_or(false),
+        expires,
+    }
+}
+
+/// Get cookies for a specific URL. Returns a JSON array as a C string
+/// that the caller must free with `wry_string_free()`. Returns null on failure.
+#[no_mangle]
+pub extern "C" fn wry_window_get_cookies_for_url(
+    win: *mut WryWindow,
+    url: *const c_char,
+) -> *mut c_char {
+    if win.is_null() || url.is_null() {
+        return std::ptr::null_mut();
+    }
+    let win = unsafe { &*win };
+    let url_str = unsafe { c_str_to_string(url) };
+    if let Some(ref wv) = win.webview {
+        match wv.cookies_for_url(&url_str) {
+            Ok(cookies) => {
+                let json_vec: Vec<CookieJson> = cookies.iter().map(cookie_to_json).collect();
+                if let Ok(json) = serde_json::to_string(&json_vec) {
+                    return CString::new(json)
+                        .map(|cs| cs.into_raw())
+                        .unwrap_or(std::ptr::null_mut());
+                }
+            }
+            Err(e) => eprintln!("[wry-native] cookies_for_url failed: {}", e),
+        }
+    }
+    std::ptr::null_mut()
+}
+
+/// Get all cookies. Returns a JSON array as a C string
+/// that the caller must free with `wry_string_free()`. Returns null on failure.
+///
+/// **Windows note:** this function can deadlock when called from a synchronous
+/// event handler. Call from an async context or background thread.
+#[no_mangle]
+pub extern "C" fn wry_window_get_cookies(win: *mut WryWindow) -> *mut c_char {
+    if win.is_null() {
+        return std::ptr::null_mut();
+    }
+    let win = unsafe { &*win };
+    if let Some(ref wv) = win.webview {
+        match wv.cookies() {
+            Ok(cookies) => {
+                let json_vec: Vec<CookieJson> = cookies.iter().map(cookie_to_json).collect();
+                if let Ok(json) = serde_json::to_string(&json_vec) {
+                    return CString::new(json)
+                        .map(|cs| cs.into_raw())
+                        .unwrap_or(std::ptr::null_mut());
+                }
+            }
+            Err(e) => eprintln!("[wry-native] get_cookies failed: {}", e),
+        }
+    }
+    std::ptr::null_mut()
+}
+
+/// Set (add or update) a cookie on the webview.
+#[no_mangle]
+pub extern "C" fn wry_window_set_cookie(
+    win: *mut WryWindow,
+    name: *const c_char,
+    value: *const c_char,
+    domain: *const c_char,
+    path: *const c_char,
+    secure: bool,
+    http_only: bool,
+    expires: f64,
+) {
+    if win.is_null() || name.is_null() || value.is_null() {
+        return;
+    }
+    let win = unsafe { &*win };
+    let name_str = unsafe { c_str_to_string(name) };
+    let value_str = unsafe { c_str_to_string(value) };
+
+    let mut builder = wry::cookie::CookieBuilder::new(name_str, value_str);
+    if !domain.is_null() {
+        let d = unsafe { c_str_to_string(domain) };
+        if !d.is_empty() {
+            builder = builder.domain(d);
+        }
+    }
+    if !path.is_null() {
+        let p = unsafe { c_str_to_string(path) };
+        if !p.is_empty() {
+            builder = builder.path(p);
+        }
+    }
+    builder = builder.secure(secure);
+    builder = builder.http_only(http_only);
+    if expires >= 0.0 {
+        if let Ok(dt) = wry::cookie::time::OffsetDateTime::from_unix_timestamp(expires as i64) {
+            builder = builder.expires(wry::cookie::Expiration::DateTime(dt));
+        }
+    }
+
+    let c = builder.build();
+    if let Some(ref wv) = win.webview {
+        log_err!(wv.set_cookie(&c), "set_cookie");
+    }
+}
+
+/// Delete a cookie from the webview.
+#[no_mangle]
+pub extern "C" fn wry_window_delete_cookie(
+    win: *mut WryWindow,
+    name: *const c_char,
+    value: *const c_char,
+    domain: *const c_char,
+    path: *const c_char,
+) {
+    if win.is_null() || name.is_null() || value.is_null() {
+        return;
+    }
+    let win = unsafe { &*win };
+    let name_str = unsafe { c_str_to_string(name) };
+    let value_str = unsafe { c_str_to_string(value) };
+
+    let mut builder = wry::cookie::CookieBuilder::new(name_str, value_str);
+    if !domain.is_null() {
+        let d = unsafe { c_str_to_string(domain) };
+        if !d.is_empty() {
+            builder = builder.domain(d);
+        }
+    }
+    if !path.is_null() {
+        let p = unsafe { c_str_to_string(path) };
+        if !p.is_empty() {
+            builder = builder.path(p);
+        }
+    }
+
+    let c = builder.build();
+    if let Some(ref wv) = win.webview {
+        log_err!(wv.delete_cookie(&c), "delete_cookie");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests (pure logic)
 // ---------------------------------------------------------------------------
 

@@ -493,6 +493,27 @@ internal static partial class NativeMethods
         string? filterExtensions);
 
     // -----------------------------------------------------------------------
+    // Cookies
+    // -----------------------------------------------------------------------
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial nint wry_window_get_cookies_for_url(nint win, string url);
+
+    [LibraryImport(LibName)]
+    internal static partial nint wry_window_get_cookies(nint win);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void wry_window_set_cookie(nint win,
+        string name, string value, string? domain, string? path,
+        [MarshalAs(UnmanagedType.U1)] bool secure,
+        [MarshalAs(UnmanagedType.U1)] bool httpOnly,
+        double expires);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void wry_window_delete_cookie(nint win,
+        string name, string value, string? domain, string? path);
+
+    // -----------------------------------------------------------------------
     // String utility
     // -----------------------------------------------------------------------
 

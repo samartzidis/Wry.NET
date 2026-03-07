@@ -154,7 +154,7 @@ All window and webview builder options are passed at creation time via `WryWindo
 | **Not covered** | `id()` | ✗ | Runtime webview id getter not exposed |
 | **Not covered** | `set_visible` (runtime) | ✗ | Webview-level visibility not exposed (window-level is) |
 | **Not covered** | `load_url_with_headers` | ✗ | No custom headers support |
-| **Not covered** | `cookies_for_url` / `cookies` / `set_cookie` / `delete_cookie` | ✗ | Cookie API not exposed |
+| `wry_window_get_cookies_for_url` / `get_cookies` / `set_cookie` / `delete_cookie` | `cookies_for_url` / `cookies` / `set_cookie` / `delete_cookie` | ✓ | Get/set/delete cookies; getters return JSON array, C# maps to `System.Net.Cookie` |
 | **Not covered (Win)** | `with_additional_browser_args` | ✗ | Extra WebView2 args not exposed |
 | **Not covered (Win)** | `with_browser_extensions_enabled` / `with_extensions_path` | ✗ | Browser extensions not exposed |
 | **Not covered (Win)** | `with_environment` | ✗ | Shared WebView2 environment not exposed |
