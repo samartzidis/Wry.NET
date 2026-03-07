@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Threading;
 
 namespace Wry.NET;
 
@@ -462,6 +463,22 @@ public sealed class WryApp : IDisposable
     }
 
     /// <summary>
+    /// On Windows, the thread must be STA for COM/OLE (required by the native layer).
+    /// Throws a clear exception before entering the native event loop so the user gets a helpful message.
+    /// </summary>
+    private static void EnsureStaThreadForRun()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+        var apt = Thread.CurrentThread.GetApartmentState();
+        if (apt == ApartmentState.STA)
+            return;
+        throw new InvalidOperationException(
+            "On Windows, the thread that calls WryApp.Run() must be STA (single-threaded apartment). " +
+            "Add [STAThread] to your Main method, e.g.: [STAThread] static void Main(string[] args) { ... }.");
+    }
+
+    /// <summary>
     /// Run the application event loop. Blocks the calling thread until the
     /// application exits. Must be called on the main thread.
     /// <para>
@@ -494,6 +511,8 @@ public sealed class WryApp : IDisposable
         // Queue dispatches to capture native pointers after Init (trays only; windows use window_created callback).
         foreach (var tray in _trays)
             tray.QueuePointerCapture();
+
+        EnsureStaThreadForRun();
 
         // This blocks until the application exits.
         NativeMethods.wry_app_run(Handle);
