@@ -74,9 +74,6 @@ public sealed class WryWindow
 
     internal nint GCHandlePtr => GCHandle.ToIntPtr(_gcHandle);
 
-    /// <summary>The native WryWindow pointer (valid when live, 0 otherwise).</summary>
-    internal nint NativePtr => _nativePtr;
-
     /// <summary>Whether the native window has been materialized (post-run).</summary>
     public bool IsLive => _nativePtr != 0;
 
@@ -277,27 +274,6 @@ public sealed class WryWindow
         set => RunOnMainThread(w => NativeMethods.wry_window_set_focusable(w._nativePtr, value));
     }
 
-    /// <summary>
-    /// Get or set whether the window can receive mouse and keyboard input.
-    /// Set to false on the owner window while a modal dialog is open; set back to true before closing the dialog.
-    /// </summary>
-    /// <exception cref="PlatformNotSupportedException">Not supported on this platform; only Windows is supported.</exception>
-    public bool Enabled
-    {
-        get
-        {
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                throw new PlatformNotSupportedException("Window enable/disable is supported only on Windows.");
-            return NativeMethods.wry_window_is_enabled(_nativePtr);
-        }
-        set
-        {
-            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-                throw new PlatformNotSupportedException("Window enable/disable is supported only on Windows.");
-            RunOnMainThread(w => NativeMethods.wry_window_set_enabled(w._nativePtr, value));
-        }
-    }
-
     /// <summary>Keep window within current monitor bounds when moved or resized.</summary>
     public bool PreventOverflow
     {
@@ -454,86 +430,6 @@ public sealed class WryWindow
     public void ClearAllBrowsingData()
     {
         RunOnMainThread(w => NativeMethods.wry_window_clear_all_browsing_data(w._nativePtr));
-    }
-
-    // =======================================================================
-    // Cookies
-    // =======================================================================
-
-    /// <summary>
-    /// Get all cookies that match the given URL.
-    /// Must be called on the main thread (event callback or dispatch).
-    /// </summary>
-    public Cookie[] GetCookiesForUrl(string url)
-    {
-        ArgumentNullException.ThrowIfNull(url);
-        var ptr = NativeMethods.wry_window_get_cookies_for_url(_nativePtr, url);
-        return ParseCookieJson(ptr);
-    }
-
-    /// <summary>
-    /// Get all cookies from the webview's cookie store.
-    /// <para><b>Windows note:</b> this can deadlock when called from a synchronous event handler.
-    /// Use from an async context or background thread.</para>
-    /// </summary>
-    public Cookie[] GetCookies()
-    {
-        var ptr = NativeMethods.wry_window_get_cookies(_nativePtr);
-        return ParseCookieJson(ptr);
-    }
-
-    /// <summary>Add or update a cookie in the webview's cookie store.</summary>
-    public void SetCookie(Cookie cookie)
-    {
-        ArgumentNullException.ThrowIfNull(cookie);
-        double expires = cookie.Expires != DateTime.MinValue
-            ? new DateTimeOffset(cookie.Expires.ToUniversalTime()).ToUnixTimeSeconds()
-            : -1.0;
-        RunOnMainThread(w => NativeMethods.wry_window_set_cookie(
-            w._nativePtr,
-            cookie.Name, cookie.Value,
-            string.IsNullOrEmpty(cookie.Domain) ? null : cookie.Domain,
-            string.IsNullOrEmpty(cookie.Path) ? null : cookie.Path,
-            cookie.Secure, cookie.HttpOnly, expires));
-    }
-
-    /// <summary>Delete a cookie from the webview's cookie store.</summary>
-    public void DeleteCookie(Cookie cookie)
-    {
-        ArgumentNullException.ThrowIfNull(cookie);
-        RunOnMainThread(w => NativeMethods.wry_window_delete_cookie(
-            w._nativePtr,
-            cookie.Name, cookie.Value,
-            string.IsNullOrEmpty(cookie.Domain) ? null : cookie.Domain,
-            string.IsNullOrEmpty(cookie.Path) ? null : cookie.Path));
-    }
-
-    private static Cookie[] ParseCookieJson(nint ptr)
-    {
-        var json = NativeMethods.ReadAndFreeNativeString(ptr);
-        if (string.IsNullOrEmpty(json))
-            return [];
-
-        using var doc = JsonDocument.Parse(json);
-        var arr = doc.RootElement;
-        var cookies = new Cookie[arr.GetArrayLength()];
-        for (int i = 0; i < cookies.Length; i++)
-        {
-            var el = arr[i];
-            var c = new Cookie(
-                el.GetProperty("name").GetString() ?? "",
-                el.GetProperty("value").GetString() ?? "");
-            if (el.TryGetProperty("domain", out var d) && d.ValueKind == JsonValueKind.String)
-                c.Domain = d.GetString() ?? "";
-            if (el.TryGetProperty("path", out var p) && p.ValueKind == JsonValueKind.String)
-                c.Path = p.GetString() ?? "";
-            c.Secure = el.TryGetProperty("secure", out var s) && s.GetBoolean();
-            c.HttpOnly = el.TryGetProperty("http_only", out var h) && h.GetBoolean();
-            if (el.TryGetProperty("expires", out var exp) && exp.ValueKind == JsonValueKind.Number)
-                c.Expires = DateTimeOffset.FromUnixTimeSeconds((long)exp.GetDouble()).DateTime;
-            cookies[i] = c;
-        }
-        return cookies;
     }
 
     /// <summary>Request the window to close.</summary>

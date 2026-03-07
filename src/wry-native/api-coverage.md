@@ -87,8 +87,7 @@ All window and webview builder options are passed at creation time via `WryWindo
 | **Not covered** | Events: `Touch`, `TouchpadPressure`, `AxisMotion` | ✗ | Touch/pressure not exposed |
 | **Not covered** | Events: `ScaleFactorChanged`, `ThemeChanged`, `DecorationsClick` | ✗ | Not exposed |
 | **Not covered (Win)** | `with_menu`, `with_taskbar_icon`, `with_no_redirection_bitmap`, `with_drag_and_drop`, `with_rtl` | ✗ | None exposed |
-| **Runtime (Win)** | `set_enable` / (is_enabled) | ✓ | `wry_window_set_enabled`, `wry_window_is_enabled`; for modal: disable owner while dialog open, re-enable before closing |
-| **Not covered (Win)** | `hwnd`, `hinstance`, `set_taskbar_icon`, `set_overlay_icon`, `set_undecorated_shadow`, `set_rtl` | ✗ | None exposed |
+| **Not covered (Win)** | `hwnd`, `hinstance`, `set_enable`, `set_taskbar_icon`, `set_overlay_icon`, `set_undecorated_shadow`, `set_rtl` | ✗ | None exposed |
 | **Not covered (macOS)** | `with_movable_by_window_background`, `with_titlebar_transparent`, `with_title_hidden`, `with_titlebar_hidden`, `with_titlebar_buttons_hidden`, `with_fullsize_content_view` | ✗ | None exposed |
 | **Not covered (macOS)** | `with_resize_increments`, `with_disallow_hidpi`, `with_has_shadow`, `with_traffic_light_inset`, `with_automatic_window_tabbing`, `with_tabbing_identifier` | ✗ | None exposed |
 | **Not covered (macOS)** | `ns_window`, `ns_view`, `simple_fullscreen`, `set_has_shadow`, `set_traffic_light_inset`, `set_is_document_edited`, tabbing, `set_badge_label` | ✗ | None exposed |
@@ -155,7 +154,7 @@ All window and webview builder options are passed at creation time via `WryWindo
 | **Not covered** | `id()` | ✗ | Runtime webview id getter not exposed |
 | **Not covered** | `set_visible` (runtime) | ✗ | Webview-level visibility not exposed (window-level is) |
 | **Not covered** | `load_url_with_headers` | ✗ | No custom headers support |
-| `wry_window_get_cookies_for_url` / `get_cookies` / `set_cookie` / `delete_cookie` | `cookies_for_url` / `cookies` / `set_cookie` / `delete_cookie` | ✓ | Get/set/delete cookies; getters return JSON array, C# maps to `System.Net.Cookie` |
+| **Not covered** | `cookies_for_url` / `cookies` / `set_cookie` / `delete_cookie` | ✗ | Cookie API not exposed |
 | **Not covered (Win)** | `with_additional_browser_args` | ✗ | Extra WebView2 args not exposed |
 | **Not covered (Win)** | `with_browser_extensions_enabled` / `with_extensions_path` | ✗ | Browser extensions not exposed |
 | **Not covered (Win)** | `with_environment` | ✗ | Shared WebView2 environment not exposed |
@@ -182,11 +181,11 @@ All dialog functions accept an optional `win` parameter (pointer to `WryWindow`,
 
 | Category | API | wry-native |
 |----------|-----|------------|
-| **Message** | message box with buttons | `wry_dialog_message(win, title, message, kind, buttons)` - kind: 0=Info, 1=Warning, 2=Error; buttons: 0=Ok, 1=OkCancel, 2=YesNo, 3=YesNoCancel; returns button label (caller frees with `wry_string_free`) |
-| **Ask** | Yes/No dialog | `wry_dialog_ask(win, title, message, kind)` - returns true for Yes, false for No/Cancel |
-| **Confirm** | Ok/Cancel dialog | `wry_dialog_confirm(win, title, message, kind)` - returns true for Ok, false for Cancel |
-| **Open** | file or folder picker | `wry_dialog_open(win, title, default_path, directory, multiple, filter_name, filter_extensions)` - returns path(s) as newline-separated string or null (caller frees with `wry_string_free`) |
-| **Save** | save file dialog | `wry_dialog_save(win, title, default_path, filter_name, filter_extensions)` - returns path or null (caller frees with `wry_string_free`) |
+| **Message** | message box with buttons | `wry_dialog_message(title, message, kind, buttons)` - kind: 0=Info, 1=Warning, 2=Error; buttons: 0=Ok, 1=OkCancel, 2=YesNo, 3=YesNoCancel; returns button label (caller frees with `wry_string_free`) |
+| **Ask** | Yes/No dialog | `wry_dialog_ask(title, message, kind)` - returns true for Yes, false for No/Cancel |
+| **Confirm** | Ok/Cancel dialog | `wry_dialog_confirm(title, message, kind)` - returns true for Ok, false for Cancel |
+| **Open** | file or folder picker | `wry_dialog_open(title, default_path, directory, multiple, filter_name, filter_extensions)` - returns path(s) as newline-separated string or null (caller frees with `wry_string_free`) |
+| **Save** | save file dialog | `wry_dialog_save(title, default_path, filter_name, filter_extensions)` - returns path or null (caller frees with `wry_string_free`) |
 
 ## App lifecycle
 

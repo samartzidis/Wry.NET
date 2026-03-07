@@ -289,13 +289,6 @@ internal static partial class NativeMethods
     internal static partial void wry_window_set_focusable(nint win, [MarshalAs(UnmanagedType.U1)] bool focusable);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_enabled(nint win, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName)]
-    [return: MarshalAs(UnmanagedType.U1)]
-    internal static partial bool wry_window_is_enabled(nint win);
-
-    [LibraryImport(LibName)]
     internal static partial void wry_window_set_zoom(nint win, double zoom);
 
     [LibraryImport(LibName)]
