@@ -39,7 +39,8 @@ Its portability relies on .NET rather than in producing different native target 
 - **Events** — push typed events from .NET to JavaScript via `bridge.Emit()`
 - **Single-file publishing** — embed frontend assets into the executable and serve via custom URI scheme
 - **System tray icons** — cross-platform tray icons with context menus, click events, and dynamic icon updates
-- **Native dialogs** — message, ask, confirm, open file/folder, save file via `WryDialog` or the bridge's `RegisterDialogService()`
+- **Native dialogs** — message, ask, confirm, open file/folder, save file via `WryDialog` or the bridge's `RegisterDialogService()` with modal parent support
+- **Cookie management** — get, set, and delete cookies via `WryWindow` (maps to `System.Net.Cookie`)
 - **Zero-config build** — MSBuild `.targets` auto-imported via NuGet; `dotnet build` does everything
 - **Framework agnostic** — works with React, Vue, Svelte, Angular, or plain TypeScript
 

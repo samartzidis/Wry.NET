@@ -634,7 +634,7 @@ pub struct WryWindow {
     focus_handler: Option<(FocusCallback, usize)>,
 
     // --- Live objects (populated during create()) ---
-    window: Option<Window>,
+    pub(crate) window: Option<Window>,
     webview: Option<WebView>,
     web_context: Option<WebContext>,
     window_id: Option<WindowId>,
@@ -2055,6 +2055,37 @@ pub extern "C" fn wry_window_set_focusable(win: *mut WryWindow, focusable: bool)
     if let Some(ref w) = win.window {
         w.set_focusable(focusable);
     }
+}
+
+/// Enable or disable mouse and keyboard input to the window. Used for modal dialogs:
+/// disable the owner window while the dialog is open, then re-enable before closing the dialog.
+/// Windows only; no-op on other platforms.
+#[no_mangle]
+pub extern "C" fn wry_window_set_enabled(win: *mut WryWindow, enabled: bool) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &*win };
+    #[cfg(target_os = "windows")]
+    if let Some(ref w) = win.window {
+        use tao::platform::windows::WindowExtWindows;
+        w.set_enable(enabled);
+    }
+}
+
+/// Returns whether the window is enabled (can receive input). Windows only; returns true on other platforms.
+#[no_mangle]
+pub extern "C" fn wry_window_is_enabled(win: *mut WryWindow) -> bool {
+    if win.is_null() {
+        return true;
+    }
+    let win = unsafe { &*win };
+    #[cfg(target_os = "windows")]
+    if let Some(ref w) = win.window {
+        use tao::platform::windows::WindowExtWindows;
+        return unsafe { windows::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(windows::Win32::Foundation::HWND(w.hwnd() as _)) }.as_bool();
+    }
+    true
 }
 
 /// Set webview zoom level. Call from a callback with the WryWindow pointer.

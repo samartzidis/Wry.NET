@@ -8,7 +8,7 @@ use std::path::Path;
 
 use rfd::{FileDialog, MessageButtons, MessageDialog, MessageDialogResult, MessageLevel};
 
-use crate::c_str_to_string;
+use crate::{c_str_to_string, WryWindow};
 
 // ---------------------------------------------------------------------------
 // Constants (C API)
@@ -43,11 +43,23 @@ fn result_to_string(r: MessageDialogResult) -> String {
     }
 }
 
+/// Resolve the optional parent tao::window::Window from a WryWindow pointer.
+///
+/// Safety: caller must ensure `win` is valid for the duration of the returned reference.
+unsafe fn resolve_parent<'a>(win: *mut WryWindow) -> Option<&'a tao::window::Window> {
+    if win.is_null() {
+        return None;
+    }
+    let win = &*win;
+    win.window.as_ref()
+}
+
 // ---------------------------------------------------------------------------
 // Message - show message dialog, return which button was pressed
 // ---------------------------------------------------------------------------
 
 /// Show a message dialog.
+/// - `win`: optional parent WryWindow pointer (null = no parent / non-modal)
 /// - `title`: dialog title (nullable)
 /// - `message`: dialog body (nullable)
 /// - `kind`: 0 = Info, 1 = Warning, 2 = Error
@@ -55,6 +67,7 @@ fn result_to_string(r: MessageDialogResult) -> String {
 /// Returns a new C string (Ok/Cancel/Yes/No); caller must free with `wry_string_free`. Returns null on error.
 #[no_mangle]
 pub extern "C" fn wry_dialog_message(
+    win: *mut WryWindow,
     title: *const c_char,
     message: *const c_char,
     kind: c_int,
@@ -72,6 +85,9 @@ pub extern "C" fn wry_dialog_message(
         dlg = dlg.set_title(title_s);
     }
     dlg = dlg.set_buttons(btns);
+    if let Some(parent) = unsafe { resolve_parent(win) } {
+        dlg = dlg.set_parent(parent);
+    }
 
     let result = dlg.show();
     CString::new(result_to_string(result).as_bytes())
@@ -85,8 +101,10 @@ pub extern "C" fn wry_dialog_message(
 // ---------------------------------------------------------------------------
 
 /// Show a Yes/No dialog. Returns true if user chose Yes, false for No or Cancel.
+/// `win`: optional parent WryWindow pointer (null = no parent).
 #[no_mangle]
 pub extern "C" fn wry_dialog_ask(
+    win: *mut WryWindow,
     title: *const c_char,
     message: *const c_char,
     kind: c_int,
@@ -102,6 +120,9 @@ pub extern "C" fn wry_dialog_ask(
     if !title_s.is_empty() {
         dlg = dlg.set_title(title_s);
     }
+    if let Some(parent) = unsafe { resolve_parent(win) } {
+        dlg = dlg.set_parent(parent);
+    }
 
     matches!(dlg.show(), MessageDialogResult::Yes)
 }
@@ -111,8 +132,10 @@ pub extern "C" fn wry_dialog_ask(
 // ---------------------------------------------------------------------------
 
 /// Show an Ok/Cancel dialog. Returns true if user chose Ok, false for Cancel.
+/// `win`: optional parent WryWindow pointer (null = no parent).
 #[no_mangle]
 pub extern "C" fn wry_dialog_confirm(
+    win: *mut WryWindow,
     title: *const c_char,
     message: *const c_char,
     kind: c_int,
@@ -128,6 +151,9 @@ pub extern "C" fn wry_dialog_confirm(
     if !title_s.is_empty() {
         dlg = dlg.set_title(title_s);
     }
+    if let Some(parent) = unsafe { resolve_parent(win) } {
+        dlg = dlg.set_parent(parent);
+    }
 
     matches!(dlg.show(), MessageDialogResult::Ok)
 }
@@ -137,6 +163,7 @@ pub extern "C" fn wry_dialog_confirm(
 // ---------------------------------------------------------------------------
 
 /// Open file or folder picker.
+/// - `win`: optional parent WryWindow pointer (null = no parent)
 /// - `title`: dialog title (nullable)
 /// - `default_path`: starting directory or file (nullable)
 /// - `directory`: true = pick folder(s), false = pick file(s)
@@ -146,6 +173,7 @@ pub extern "C" fn wry_dialog_confirm(
 /// Returns a new C string: single path, or newline-separated paths if multiple; caller frees with `wry_string_free`. Returns null if cancelled.
 #[no_mangle]
 pub extern "C" fn wry_dialog_open(
+    win: *mut WryWindow,
     title: *const c_char,
     default_path: *const c_char,
     directory: bool,
@@ -179,6 +207,9 @@ pub extern "C" fn wry_dialog_open(
             dlg = dlg.add_filter(&filter_name_s, &exts);
         }
     }
+    if let Some(parent) = unsafe { resolve_parent(win) } {
+        dlg = dlg.set_parent(parent);
+    }
 
     let result = if directory {
         if multiple {
@@ -205,6 +236,7 @@ pub extern "C" fn wry_dialog_open(
 // ---------------------------------------------------------------------------
 
 /// Save file dialog.
+/// - `win`: optional parent WryWindow pointer (null = no parent)
 /// - `title`: dialog title (nullable)
 /// - `default_path`: starting directory or suggested filename (nullable)
 /// - `filter_name`: optional filter label (nullable)
@@ -212,6 +244,7 @@ pub extern "C" fn wry_dialog_open(
 /// Returns a new C string path; caller frees with `wry_string_free`. Returns null if cancelled.
 #[no_mangle]
 pub extern "C" fn wry_dialog_save(
+    win: *mut WryWindow,
     title: *const c_char,
     default_path: *const c_char,
     filter_name: *const c_char,
@@ -244,6 +277,9 @@ pub extern "C" fn wry_dialog_save(
         if !exts.is_empty() {
             dlg = dlg.add_filter(&filter_name_s, &exts);
         }
+    }
+    if let Some(parent) = unsafe { resolve_parent(win) } {
+        dlg = dlg.set_parent(parent);
     }
 
     match dlg.save_file() {

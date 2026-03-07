@@ -74,6 +74,9 @@ public sealed class WryWindow
 
     internal nint GCHandlePtr => GCHandle.ToIntPtr(_gcHandle);
 
+    /// <summary>The native WryWindow pointer (valid when live, 0 otherwise).</summary>
+    internal nint NativePtr => _nativePtr;
+
     /// <summary>Whether the native window has been materialized (post-run).</summary>
     public bool IsLive => _nativePtr != 0;
 
@@ -272,6 +275,27 @@ public sealed class WryWindow
     public bool Focusable
     {
         set => RunOnMainThread(w => NativeMethods.wry_window_set_focusable(w._nativePtr, value));
+    }
+
+    /// <summary>
+    /// Get or set whether the window can receive mouse and keyboard input.
+    /// Set to false on the owner window while a modal dialog is open; set back to true before closing the dialog.
+    /// </summary>
+    /// <exception cref="PlatformNotSupportedException">Not supported on this platform; only Windows is supported.</exception>
+    public bool Enabled
+    {
+        get
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                throw new PlatformNotSupportedException("Window enable/disable is supported only on Windows.");
+            return NativeMethods.wry_window_is_enabled(_nativePtr);
+        }
+        set
+        {
+            if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+                throw new PlatformNotSupportedException("Window enable/disable is supported only on Windows.");
+            RunOnMainThread(w => NativeMethods.wry_window_set_enabled(w._nativePtr, value));
+        }
     }
 
     /// <summary>Keep window within current monitor bounds when moved or resized.</summary>

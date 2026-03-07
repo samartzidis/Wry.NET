@@ -289,6 +289,13 @@ internal static partial class NativeMethods
     internal static partial void wry_window_set_focusable(nint win, [MarshalAs(UnmanagedType.U1)] bool focusable);
 
     [LibraryImport(LibName)]
+    internal static partial void wry_window_set_enabled(nint win, [MarshalAs(UnmanagedType.U1)] bool enabled);
+
+    [LibraryImport(LibName)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    internal static partial bool wry_window_is_enabled(nint win);
+
+    [LibraryImport(LibName)]
     internal static partial void wry_window_set_zoom(nint win, double zoom);
 
     [LibraryImport(LibName)]
@@ -466,18 +473,19 @@ internal static partial class NativeMethods
     // -----------------------------------------------------------------------
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial nint wry_dialog_message(string? title, string? message, int kind, int buttons);
+    internal static partial nint wry_dialog_message(nint win, string? title, string? message, int kind, int buttons);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     [return: MarshalAs(UnmanagedType.U1)]
-    internal static partial bool wry_dialog_ask(string? title, string? message, int kind);
+    internal static partial bool wry_dialog_ask(nint win, string? title, string? message, int kind);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     [return: MarshalAs(UnmanagedType.U1)]
-    internal static partial bool wry_dialog_confirm(string? title, string? message, int kind);
+    internal static partial bool wry_dialog_confirm(nint win, string? title, string? message, int kind);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial nint wry_dialog_open(
+        nint win,
         string? title,
         string? defaultPath,
         [MarshalAs(UnmanagedType.U1)] bool directory,
@@ -487,6 +495,7 @@ internal static partial class NativeMethods
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial nint wry_dialog_save(
+        nint win,
         string? title,
         string? defaultPath,
         string? filterName,
