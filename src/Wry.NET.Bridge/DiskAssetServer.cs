@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Wry.NET;
 
 namespace Wry.NET.Bridge;
 
