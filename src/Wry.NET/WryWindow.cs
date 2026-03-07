@@ -128,179 +128,153 @@ public sealed class WryWindow
     // Properties (set before app.Run() to configure; getters available post-run)
     // =======================================================================
 
-    /// <summary>Get or set the window title. Getter requires the window to be live.</summary>
+    /// <summary>Get or set the window title.</summary>
     public string? Title
     {
-        get
-        {
-            return NativeMethods.ReadAndFreeNativeString(NativeMethods.wry_window_get_title(_nativePtr));
-        }
-        set
-        {
-            if (value is null) return;
-            NativeMethods.wry_window_set_title(_nativePtr, value);
-        }
+        get => NativeMethods.ReadAndFreeNativeString(NativeMethods.wry_window_get_title(_nativePtr));
+        set { if (value is not null) RunOnMainThread(w => NativeMethods.wry_window_set_title(w._nativePtr, value)); }
     }
 
     /// <summary>Get the current URL, or set a URL to navigate to.</summary>
     public string? Url
     {
-        get
-        {
-            return NativeMethods.ReadAndFreeNativeString(NativeMethods.wry_window_get_url(_nativePtr));
-        }
-        set
-        {
-            if (value is null) return;
-            NativeMethods.wry_window_load_url(_nativePtr, value);
-        }
+        get => NativeMethods.ReadAndFreeNativeString(NativeMethods.wry_window_get_url(_nativePtr));
+        set { if (value is not null) RunOnMainThread(w => NativeMethods.wry_window_load_url(w._nativePtr, value)); }
     }
 
     /// <summary>Set HTML content to load.</summary>
     public string? Html
     {
-        set
-        {
-            if (value is null) return;
-            NativeMethods.wry_window_load_html(_nativePtr, value);
-        }
+        set { if (value is not null) RunOnMainThread(w => NativeMethods.wry_window_load_html(w._nativePtr, value)); }
     }
 
-    /// <summary>Get or set window size in logical pixels. Getter requires the window to be live.</summary>
+    /// <summary>Get or set window size in logical pixels.</summary>
     public (int Width, int Height) Size
     {
-        get
-        {
-            NativeMethods.wry_window_get_size(_nativePtr, out var w, out var h);
-            return (w, h);
-        }
-        set => NativeMethods.wry_window_set_size(_nativePtr, value.Width, value.Height);
+        get { NativeMethods.wry_window_get_size(_nativePtr, out var w, out var h); return (w, h); }
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_size(w._nativePtr, value.Width, value.Height));
     }
 
-    /// <summary>Get or set window position in logical pixels. Getter requires the window to be live.</summary>
+    /// <summary>Get or set window position in logical pixels.</summary>
     public (int X, int Y) Position
     {
-        get
-        {
-            NativeMethods.wry_window_get_position(_nativePtr, out var x, out var y);
-            return (x, y);
-        }
-        set => NativeMethods.wry_window_set_position(_nativePtr, value.X, value.Y);
+        get { NativeMethods.wry_window_get_position(_nativePtr, out var x, out var y); return (x, y); }
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_position(w._nativePtr, value.X, value.Y));
     }
 
     /// <summary>Set minimum window inner size in logical pixels. Use (0, 0) to clear the constraint.</summary>
     public (int Width, int Height) MinSize
     {
-        set => NativeMethods.wry_window_set_min_size(_nativePtr, value.Width, value.Height);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_min_size(w._nativePtr, value.Width, value.Height));
     }
 
     /// <summary>Set maximum window inner size in logical pixels. Use (0, 0) to clear the constraint.</summary>
     public (int Width, int Height) MaxSize
     {
-        set => NativeMethods.wry_window_set_max_size(_nativePtr, value.Width, value.Height);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_max_size(w._nativePtr, value.Width, value.Height));
     }
 
-    /// <summary>Get or set window theme. Auto = follow system; Dark/Light force a theme. Behavior may be app-wide on Linux/macOS.</summary>
+    /// <summary>Get or set window theme. Auto = follow system; Dark/Light force a theme.</summary>
     public WryTheme Theme
     {
         get => (WryTheme)NativeMethods.wry_window_get_theme(_nativePtr);
-        set => NativeMethods.wry_window_set_theme(_nativePtr, (int)value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_theme(w._nativePtr, (int)value));
     }
 
     /// <summary>Get or set whether the window is resizable.</summary>
     public bool Resizable
     {
         get => NativeMethods.wry_window_get_resizable(_nativePtr);
-        set => NativeMethods.wry_window_set_resizable(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_resizable(w._nativePtr, value));
     }
 
     /// <summary>Get or set fullscreen state.</summary>
     public bool Fullscreen
     {
         get => NativeMethods.wry_window_get_fullscreen(_nativePtr);
-        set => NativeMethods.wry_window_set_fullscreen(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_fullscreen(w._nativePtr, value));
     }
 
     /// <summary>Get or set maximized state.</summary>
     public bool Maximized
     {
         get => NativeMethods.wry_window_get_maximized(_nativePtr);
-        set => NativeMethods.wry_window_set_maximized(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_maximized(w._nativePtr, value));
     }
 
     /// <summary>Get or set minimized state.</summary>
     public bool Minimized
     {
         get => NativeMethods.wry_window_get_minimized(_nativePtr);
-        set => NativeMethods.wry_window_set_minimized(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_minimized(w._nativePtr, value));
     }
 
     /// <summary>Set always-on-top state.</summary>
     public bool Topmost
     {
-        set => NativeMethods.wry_window_set_topmost(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_topmost(w._nativePtr, value));
     }
 
     /// <summary>Get or set window visibility.</summary>
     public bool Visible
     {
         get => NativeMethods.wry_window_get_visible(_nativePtr);
-        set => NativeMethods.wry_window_set_visible(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_visible(w._nativePtr, value));
     }
 
     /// <summary>Get or set whether the window has title bar and borders.</summary>
     public bool Decorations
     {
         get => NativeMethods.wry_window_get_decorated(_nativePtr);
-        set => NativeMethods.wry_window_set_decorations(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_decorations(w._nativePtr, value));
     }
 
     /// <summary>Hide or show the window in the taskbar. Windows, Linux.</summary>
     public bool SkipTaskbar
     {
-        set => NativeMethods.wry_window_set_skip_taskbar(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_skip_taskbar(w._nativePtr, value));
     }
 
     /// <summary>Prevent window content from being captured (e.g. screen capture). Windows, macOS.</summary>
     public bool ContentProtected
     {
-        set => NativeMethods.wry_window_set_content_protected(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_content_protected(w._nativePtr, value));
     }
 
     /// <summary>Show or hide drop shadow for undecorated windows. Windows.</summary>
     public bool Shadow
     {
-        set => NativeMethods.wry_window_set_shadow(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_shadow(w._nativePtr, value));
     }
 
     /// <summary>Keep the window below other windows.</summary>
     public bool AlwaysOnBottom
     {
-        set => NativeMethods.wry_window_set_always_on_bottom(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_always_on_bottom(w._nativePtr, value));
     }
 
     /// <summary>Allow or prevent maximizing the window.</summary>
     public bool Maximizable
     {
-        set => NativeMethods.wry_window_set_maximizable(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_maximizable(w._nativePtr, value));
     }
 
     /// <summary>Allow or prevent minimizing the window.</summary>
     public bool Minimizable
     {
-        set => NativeMethods.wry_window_set_minimizable(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_minimizable(w._nativePtr, value));
     }
 
     /// <summary>Allow or prevent closing the window (e.g. close button).</summary>
     public bool Closable
     {
-        set => NativeMethods.wry_window_set_closable(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_closable(w._nativePtr, value));
     }
 
     /// <summary>Allow or prevent the window from receiving keyboard focus.</summary>
     public bool Focusable
     {
-        set => NativeMethods.wry_window_set_focusable(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_focusable(w._nativePtr, value));
     }
 
     /// <summary>Keep window within current monitor bounds when moved or resized.</summary>
@@ -319,23 +293,23 @@ public sealed class WryWindow
     /// <summary>Set the webview zoom level (1.0 = 100%).</summary>
     public double Zoom
     {
-        set => NativeMethods.wry_window_set_zoom(_nativePtr, value);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_zoom(w._nativePtr, value));
     }
 
-    /// <summary>Enable/disable devtools. Pre-run sets initial state; post-run opens/closes.</summary>
+    /// <summary>Enable/disable devtools.</summary>
     public bool DevTools
     {
-        set
+        set => RunOnMainThread(w =>
         {
-            if (value) NativeMethods.wry_window_open_devtools(_nativePtr);
-            else NativeMethods.wry_window_close_devtools(_nativePtr);
-        }
+            if (value) NativeMethods.wry_window_open_devtools(w._nativePtr);
+            else NativeMethods.wry_window_close_devtools(w._nativePtr);
+        });
     }
 
     /// <summary>Set background color. Ignored if Transparent is true.</summary>
     public WryColor BackgroundColor
     {
-        set => NativeMethods.wry_window_set_background_color(_nativePtr, value.R, value.G, value.B, value.A);
+        set => RunOnMainThread(w => NativeMethods.wry_window_set_background_color(w._nativePtr, value.R, value.G, value.B, value.A));
     }
 
     /// <summary>
@@ -344,15 +318,18 @@ public sealed class WryWindow
     /// </summary>
     public unsafe void SetIcon(byte[]? rgbaData, int width, int height)
     {
-        if (rgbaData is null || rgbaData.Length == 0)
+        RunOnMainThread(w =>
         {
-            NativeMethods.wry_window_set_icon(_nativePtr, 0, 0, 0, 0);
-            return;
-        }
-        fixed (byte* ptr = rgbaData)
-        {
-            NativeMethods.wry_window_set_icon(_nativePtr, (nint)ptr, rgbaData.Length, width, height);
-        }
+            if (rgbaData is null || rgbaData.Length == 0)
+            {
+                NativeMethods.wry_window_set_icon(w._nativePtr, 0, 0, 0, 0);
+                return;
+            }
+            fixed (byte* ptr = rgbaData)
+            {
+                NativeMethods.wry_window_set_icon(w._nativePtr, (nint)ptr, rgbaData.Length, width, height);
+            }
+        });
     }
 
     /// <summary>
@@ -361,15 +338,18 @@ public sealed class WryWindow
     /// </summary>
     public unsafe void SetIcon(byte[]? imageData)
     {
-        if (imageData is null || imageData.Length == 0)
+        RunOnMainThread(w =>
         {
-            NativeMethods.wry_window_set_icon_from_bytes(_nativePtr, 0, 0);
-            return;
-        }
-        fixed (byte* ptr = imageData)
-        {
-            NativeMethods.wry_window_set_icon_from_bytes(_nativePtr, (nint)ptr, imageData.Length);
-        }
+            if (imageData is null || imageData.Length == 0)
+            {
+                NativeMethods.wry_window_set_icon_from_bytes(w._nativePtr, 0, 0);
+                return;
+            }
+            fixed (byte* ptr = imageData)
+            {
+                NativeMethods.wry_window_set_icon_from_bytes(w._nativePtr, (nint)ptr, imageData.Length);
+            }
+        });
     }
 
     /// <summary>
@@ -386,7 +366,7 @@ public sealed class WryWindow
     /// <summary>Center the window on the primary monitor.</summary>
     public void Center()
     {
-        NativeMethods.wry_window_center(_nativePtr);
+        RunOnMainThread(w => NativeMethods.wry_window_center(w._nativePtr));
     }
 
     // =======================================================================
@@ -396,13 +376,13 @@ public sealed class WryWindow
     /// <summary>Evaluate JavaScript in the webview (fire-and-forget).</summary>
     public void EvalJs(string js)
     {
-        NativeMethods.wry_window_eval_js(_nativePtr, js);
+        RunOnMainThread(w => NativeMethods.wry_window_eval_js(w._nativePtr, js));
     }
 
     /// <summary>
     /// Evaluate JavaScript in the webview and return the result.
     /// The result is the JSON-encoded value returned by the script.
-    /// Must be called from a dispatch or event callback (post-run).
+    /// Must be called from the main thread (event callback or dispatch).
     /// </summary>
     public unsafe Task<string> EvalJsAsync(string js)
     {
@@ -416,55 +396,55 @@ public sealed class WryWindow
     /// <summary>Navigate to a URL.</summary>
     public void LoadUrl(string url)
     {
-        NativeMethods.wry_window_load_url(_nativePtr, url);
+        RunOnMainThread(w => NativeMethods.wry_window_load_url(w._nativePtr, url));
     }
 
     /// <summary>Load HTML content.</summary>
     public void LoadHtml(string html)
     {
-        NativeMethods.wry_window_load_html(_nativePtr, html);
+        RunOnMainThread(w => NativeMethods.wry_window_load_html(w._nativePtr, html));
     }
 
     /// <summary>Open the print dialog.</summary>
     public void Print()
     {
-        NativeMethods.wry_window_print(_nativePtr);
+        RunOnMainThread(w => NativeMethods.wry_window_print(w._nativePtr));
     }
 
     /// <summary>Reload the current page.</summary>
     public void Reload()
     {
-        NativeMethods.wry_window_reload(_nativePtr);
+        RunOnMainThread(w => NativeMethods.wry_window_reload(w._nativePtr));
     }
 
     /// <summary>Move focus to the webview.</summary>
     public void FocusWebView()
     {
-        NativeMethods.wry_window_focus(_nativePtr);
+        RunOnMainThread(w => NativeMethods.wry_window_focus(w._nativePtr));
     }
 
     /// <summary>Move focus from the webview back to the parent window.</summary>
     public void FocusParent()
     {
-        NativeMethods.wry_window_focus_parent(_nativePtr);
+        RunOnMainThread(w => NativeMethods.wry_window_focus_parent(w._nativePtr));
     }
 
     /// <summary>Clear all browsing data.</summary>
     public void ClearAllBrowsingData()
     {
-        NativeMethods.wry_window_clear_all_browsing_data(_nativePtr);
+        RunOnMainThread(w => NativeMethods.wry_window_clear_all_browsing_data(w._nativePtr));
     }
 
     /// <summary>Request the window to close.</summary>
     public void Close()
     {
-        NativeMethods.wry_window_close(_nativePtr);
+        RunOnMainThread(w => NativeMethods.wry_window_close(w._nativePtr));
     }
 
     /// <summary>Restore the window from minimized or maximized state.</summary>
     public void Restore()
     {
-        NativeMethods.wry_window_restore(_nativePtr);
+        RunOnMainThread(w => NativeMethods.wry_window_restore(w._nativePtr));
     }
 
     /// <summary>Whether the dev tools panel is currently open.</summary>
@@ -540,6 +520,20 @@ public sealed class WryWindow
     // Cross-thread dispatch
     // =======================================================================
 
+    private bool IsOnMainThread => Environment.CurrentManagedThreadId == _app.MainThreadId;
+
+    /// <summary>
+    /// Run an action on the event loop (main) thread. If already on the main thread,
+    /// the action runs synchronously; otherwise it is dispatched asynchronously.
+    /// </summary>
+    private void RunOnMainThread(Action<WryWindow> action)
+    {
+        if (IsOnMainThread)
+            action(this);
+        else
+            Dispatch(action);
+    }
+
     /// <summary>
     /// Dispatch an action to run on the event loop (main) thread.
     /// Safe to call from any thread. The action receives this window
@@ -547,7 +541,6 @@ public sealed class WryWindow
     /// </summary>
     public unsafe void Dispatch(Action<WryWindow> action)
     {
-        // Capture this window in the closure so the bridge can invoke with it.
         var captured = (Window: this, Action: action);
         var handle = GCHandle.Alloc(captured);
         delegate* unmanaged[Cdecl]<nint, nint, void> fp = &DispatchBridge;

@@ -161,9 +161,11 @@ public sealed class WryWindowCreateOptions
 /// <example>
 /// <code>
 /// using var app = new WryApp();
-/// var window = app.CreateWindow();
-/// window.Title = "Hello";
-/// window.Url = "https://example.com";
+/// app.CreateWindow(new WryWindowCreateOptions
+/// {
+///     Title = "Hello",
+///     Url = "https://example.com",
+/// });
 /// app.Run(); // blocks until all windows close
 /// </code>
 /// </example>
@@ -174,6 +176,9 @@ public sealed class WryApp : IDisposable
     private readonly List<WryWindow> _windows = [];
     private readonly List<WryTrayIcon> _trays = [];
     private GCHandle _gcHandle;
+    private readonly Dictionary<nuint, Action<WryWindow>?> _onCreatedCallbacks = [];
+    private readonly Dictionary<nuint, Action<string>?> _onErrorCallbacks = [];
+    internal int MainThreadId { get; } = Environment.CurrentManagedThreadId;
 
     /// <summary>All windows created by this app.</summary>
     public IReadOnlyList<WryWindow> Windows => _windows;
@@ -216,28 +221,33 @@ public sealed class WryApp : IDisposable
     }
 
     /// <summary>
-    /// Create a new window. Configure it with properties before calling <see cref="Run"/>.
+    /// Create a new window. The window is materialized asynchronously; use <paramref name="onCreated"/>
+    /// to receive the live <see cref="WryWindow"/> when it is ready.
     /// </summary>
-    public WryWindow CreateWindow()
+    /// <param name="options">Creation options. Null uses defaults.</param>
+    /// <param name="onCreated">Called with the live window when materialization succeeds.</param>
+    /// <param name="onError">Called with an error message if creation fails.</param>
+    public void CreateWindow(
+        WryWindowCreateOptions? options = null,
+        Action<WryWindow>? onCreated = null,
+        Action<string>? onError = null)
     {
-        return CreateWindow(owner: null);
+        CreateWindow(owner: null, options, onCreated, onError);
     }
 
     /// <summary>
-    /// Create a new window owned by <paramref name="owner"/> (e.g. so it stays on top of the owner and closes with it).
-    /// Pass null for a top-level window.
+    /// Create a new window owned by <paramref name="owner"/>. The window is materialized asynchronously;
+    /// use <paramref name="onCreated"/> to receive the live <see cref="WryWindow"/> when it is ready.
     /// </summary>
-    public WryWindow CreateWindow(WryWindow? owner)
-    {
-        return CreateWindow(owner, options: null);
-    }
-
-    /// <summary>
-    /// Create a new window with optional owner and optional creation options.
-    /// When <paramref name="options"/> is non-null, config (title, url, size, data directory) is passed at create time;
-    /// otherwise the legacy path is used and you can configure via properties before <see cref="Run"/>.
-    /// </summary>
-    public unsafe WryWindow CreateWindow(WryWindow? owner, WryWindowCreateOptions? options)
+    /// <param name="owner">Owner window (stays on top of owner, closes with it). Null for top-level.</param>
+    /// <param name="options">Creation options. Null uses defaults.</param>
+    /// <param name="onCreated">Called with the live window when materialization succeeds.</param>
+    /// <param name="onError">Called with an error message if creation fails.</param>
+    public unsafe void CreateWindow(
+        WryWindow? owner,
+        WryWindowCreateOptions? options = null,
+        Action<WryWindow>? onCreated = null,
+        Action<string>? onError = null)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
 
@@ -415,7 +425,9 @@ public sealed class WryApp : IDisposable
         window.SetWindowId(id);
         if (pinnedProtocolHandles != null)
             window.AddPinnedProtocolHandles(pinnedProtocolHandles);
-        return window;
+
+        _onCreatedCallbacks[id] = onCreated;
+        _onErrorCallbacks[id] = onError;
     }
 
     private static string GetDefaultDataDirectory()
@@ -566,6 +578,11 @@ public sealed class WryApp : IDisposable
             {
                 window.SetNativePtr(windowPtr);
                 window.OnWindowCreated();
+
+                if (app._onCreatedCallbacks.Remove(windowId, out var cb) && cb is not null)
+                    cb(window);
+                app._onErrorCallbacks.Remove(windowId);
+
                 app.WindowCreated?.Invoke(app, new WindowCreatedEventArgs(window));
             }
         }
@@ -579,6 +596,11 @@ public sealed class WryApp : IDisposable
         if (handle.Target is WryApp app)
         {
             var message = errorMessagePtr != 0 ? Marshal.PtrToStringUTF8(errorMessagePtr) ?? "" : "";
+
+            if (app._onErrorCallbacks.Remove(windowId, out var cb) && cb is not null)
+                cb(message);
+            app._onCreatedCallbacks.Remove(windowId);
+
             app.WindowCreationError?.Invoke(app, new WindowCreationErrorEventArgs(windowId, message));
         }
     }

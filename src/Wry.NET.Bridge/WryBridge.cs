@@ -80,20 +80,11 @@ public class WryBridge
         })();
         """;
 
-    /// <summary>
-    /// Add the bridge init script to <paramref name="options"/> so it is injected when the window is created.
-    /// Call before <see cref="WryApp.CreateWindow(WryWindow?, WryWindowCreateOptions?)"/>.
-    /// </summary>
-    public void PrepareWindowOptions(WryWindowCreateOptions options)
-    {
-        options.InitScripts ??= [];
-        options.InitScripts.Add(BridgeInitScript);
-    }
+    internal static string GetBridgeInitScript() => BridgeInitScript;
 
     /// <summary>
     /// Attach this bridge to a WryWindow. Registers the IPC message handler
-    /// and event subscriptions. The bridge init script must already be in the
-    /// window's create options via <see cref="PrepareWindowOptions"/>.
+    /// and event subscriptions. Call <see cref="WryWindowExtensions.AddBridge"/> on the window's create options first.
     /// Responses are routed back to the window that sent the request, and
     /// <see cref="Emit"/> broadcasts to all attached windows.
     /// </summary>

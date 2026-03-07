@@ -38,28 +38,12 @@ namespace SampleApp
             if (File.Exists(iconPath))
                 options.IconPath = iconPath;
 
-            // Inject bridge init script into the window options before creation
-            bridge.PrepareWindowOptions(options);
+            options.AddBridge(bridge);
+            options.Visible = false; // hidden until first page load finishes to avoid white flash
 
             using var app = new WryApp();
-            var window = app.CreateWindow(null, options);
 
-            app.WindowCreated += (_, e) =>
-            {
-                
-            };
-
-            bridge.Attach(window);
-
-            // Hide window until first page load finishes to avoid white flash
-            window.Visible = false;
-            window.PageLoad += (_, e) =>
-            {
-                if (e.Event == WryPageLoadEvent.Finished)
-                    window.Visible = true;
-            };
-
-            // --- Tray icon ---
+            // --- Tray icon (set up before Run so it's ready) ---
             var tray = app.CreateTrayIcon();
             tray.Tooltip = "Wry.NET Bridge App";
 
@@ -75,43 +59,56 @@ namespace SampleApp
             menu.AddItem("quit", "Quit");
             tray.Menu = menu;
 
-            tray.MenuItemClicked += (_, e) =>
+            app.CreateWindow(options: options, onCreated: window =>
             {
-                switch (e.ItemId)
+                bridge.Attach(window);
+                window.PageLoad += (_, e) =>
                 {
-                    case "show":
-                        window.Dispatch(w => w.Visible = true);
-                        break;
-                    case "hide":
-                        window.Dispatch(w => w.Visible = false);
-                        break;
-                    /*
-                    case "new_window":
-                        // Dynamic child window: same SPA, route ?window=child. Owner = main (stays on top, closes with main).
-                        // URL and protocol are applied to the queued window (Tauri-style: config at create time).
-                        var child = app.CreateWindow(owner: window);
-                        child.Title = "Child Window (dynamic)";
-                        child.Size = (600, 400);
-                        child.Visible = false;
-                        child.LoadFrontend(
-                            assembly: Assembly.GetExecutingAssembly(),
-                            devUrl: devUrl,
-                            pathFragment: "#/child",
-                            loggerFactory: loggerFactory);
-                        bridge.Attach(child);
-                        child.PageLoad += (_, pe) =>
-                        {
-                            if (pe.Event == WryPageLoadEvent.Finished)
-                                child.Visible = true;
-                        };
-                        break;
-                    */
-                    case "quit":
-                        foreach (var w in app.Windows)
-                            w.Dispatch(win => win.Close());
-                        break;
-                }
-            };
+                    if (e.Event == WryPageLoadEvent.Finished)
+                        window.Visible = true;
+                };
+
+                tray.MenuItemClicked += (_, e) =>
+                {
+                    switch (e.ItemId)
+                    {
+                        case "show":
+                            window.Visible = true;
+                            break;
+                        case "hide":
+                            window.Visible = false;
+                            break;
+                        case "new_window":
+                            var childOptions = new WryWindowCreateOptions
+                            {
+                                Title = "Child Window (dynamic)",
+                                Width = 600,
+                                Height = 400,
+                                Visible = false,
+                            };
+                            childOptions.SetFrontend(
+                                devUrl: devUrl,
+                                assembly: Assembly.GetExecutingAssembly(),
+                                pathFragment: "#/child",
+                                loggerFactory: loggerFactory);
+                            childOptions.AddBridge(bridge);
+                            app.CreateWindow(owner: window, options: childOptions, onCreated: child =>
+                            {
+                                bridge.Attach(child);
+                                child.PageLoad += (_, pe) =>
+                                {
+                                    if (pe.Event == WryPageLoadEvent.Finished)
+                                        child.Visible = true;
+                                };
+                            });
+                            break;
+                        case "quit":
+                            foreach (var w in app.Windows)
+                                w.Close();
+                            break;
+                    }
+                };
+            });
 
             app.Run();
         }

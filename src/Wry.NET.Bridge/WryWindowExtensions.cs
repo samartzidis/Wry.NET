@@ -61,4 +61,15 @@ public static class WryWindowExtensions
         options.Protocols = [(server2.Scheme, server2.HandleRequest)];
     }
 
+    /// <summary>
+    /// Adds this bridge's init script to the window options so the bridge is active when the window is created.
+    /// Call before <see cref="WryApp.CreateWindow(WryWindow?, WryWindowCreateOptions?)"/>, then call <see cref="WryBridge.Attach"/> after creation.
+    /// </summary>
+    public static void AddBridge(this WryWindowCreateOptions options, WryBridge bridge)
+    {
+        ArgumentNullException.ThrowIfNull(options);
+        ArgumentNullException.ThrowIfNull(bridge);
+        options.InitScripts ??= [];
+        options.InitScripts.Add(WryBridge.GetBridgeInitScript());
+    }
 }

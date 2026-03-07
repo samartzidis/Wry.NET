@@ -164,8 +164,6 @@ pub(crate) enum UserEvent {
     /// Create one window from config (posted when wry_window_create is called after run started).
     CreateWindowWithConfig {
         id: usize,
-        owner_window_id: usize,
-        parent_window_id: usize,
         payload: Box<WindowCreatePayload>,
     },
 }
@@ -1290,22 +1288,16 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
 
                 UserEvent::CreateWindowWithConfig {
                     id: our_id,
-                    owner_window_id: oid,
-                    parent_window_id: pid,
                     payload,
                 } => {
-                    let owner_window = if oid != 0 {
+                    let owner_window = payload.owner_window_id.and_then(|oid| {
                         id_to_window_id.get(&oid).and_then(|tid| live_windows.get(tid))
                             .and_then(|w| w.window.as_ref())
-                    } else {
-                        None
-                    };
-                    let parent_window = if pid != 0 {
+                    });
+                    let parent_window = payload.parent_window_id.and_then(|pid| {
                         id_to_window_id.get(&pid).and_then(|tid| live_windows.get(tid))
                             .and_then(|w| w.window.as_ref())
-                    } else {
-                        None
-                    };
+                    });
                     let mut win = WryWindow::new(our_id);
                     match win.create(&payload, event_loop_target, owner_window, parent_window) {
                         Ok(()) => {
@@ -1456,8 +1448,6 @@ pub extern "C" fn wry_window_create(
 
     let _ = app.proxy.send_event(UserEvent::CreateWindowWithConfig {
         id,
-        owner_window_id,
-        parent_window_id,
         payload: Box::new(payload),
     });
     id
