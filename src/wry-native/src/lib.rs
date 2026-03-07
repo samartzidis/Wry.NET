@@ -234,29 +234,29 @@ fn payload_from_config(config: *const WryWindowConfig) -> WindowCreatePayload {
     }
     let c = unsafe { &*config };
     if !c.title.is_null() {
-        payload.pending_title = unsafe { c_str_to_string(c.title) };
+        payload.title = unsafe { c_str_to_string(c.title) };
     }
     if !c.url.is_null() {
         let s = unsafe { c_str_to_string(c.url) };
         if !s.is_empty() {
-            payload.pending_url = Some(s);
-            payload.pending_html = None;
+            payload.url = Some(s);
+            payload.html = None;
         }
     }
     if !c.html.is_null() {
         let s = unsafe { c_str_to_string(c.html) };
         if !s.is_empty() {
-            payload.pending_html = Some(s);
-            payload.pending_url = None;
+            payload.html = Some(s);
+            payload.url = None;
         }
     }
     if c.width > 0 && c.height > 0 {
-        payload.pending_size = (c.width as u32, c.height as u32);
+        payload.size = (c.width as u32, c.height as u32);
     }
     if !c.data_directory.is_null() {
         let s = unsafe { c_str_to_string(c.data_directory) };
         if !s.is_empty() {
-            payload.pending_data_directory = Some(s);
+            payload.data_directory = Some(s);
         }
     }
     if c.protocol_count > 0 && !c.protocols.is_null() {
@@ -264,7 +264,7 @@ fn payload_from_config(config: *const WryWindowConfig) -> WindowCreatePayload {
         for entry in slice {
             let scheme = unsafe { c_str_to_string(entry.scheme) };
             if !scheme.is_empty() {
-                payload.pending_protocols.push(PendingProtocol {
+                payload.protocols.push(PendingProtocol {
                     scheme,
                     callback: entry.callback,
                     ctx: entry.ctx as usize,
@@ -274,11 +274,11 @@ fn payload_from_config(config: *const WryWindowConfig) -> WindowCreatePayload {
     }
     #[cfg(target_os = "windows")]
     {
-        payload.pending_default_context_menus = c.default_context_menus != 0;
+        payload.default_context_menus = c.default_context_menus != 0;
     }
     if !c.icon_data.is_null() && c.icon_data_len > 0 {
         let bytes = unsafe { std::slice::from_raw_parts(c.icon_data, c.icon_data_len as usize) };
-        payload.pending_icon = decode_icon_from_bytes(bytes);
+        payload.icon = decode_icon_from_bytes(bytes);
     }
     if c.init_script_count > 0 && !c.init_scripts.is_null() {
         let ptrs = unsafe { std::slice::from_raw_parts(c.init_scripts, c.init_script_count as usize) };
@@ -286,7 +286,7 @@ fn payload_from_config(config: *const WryWindowConfig) -> WindowCreatePayload {
             if !ptr.is_null() {
                 let s = unsafe { c_str_to_string(ptr) };
                 if !s.is_empty() {
-                    payload.pending_init_scripts.push(s);
+                    payload.init_scripts.push(s);
                 }
             }
         }
@@ -351,64 +351,64 @@ struct PendingProtocol {
     ctx: usize,
 }
 
-/// Owned creation parameters for a window. Used when creating via config (wry_window_create with config).
-/// Can be sent to the event loop for during-run creation; no queue of WryWindow to mutate.
+/// Owned configuration for a window, passed at creation time via wry_window_create.
+/// Can be sent to the event loop for during-run creation.
 #[derive(Clone)]
 pub(crate) struct WindowCreatePayload {
-    pub pending_title: String,
-    pub pending_url: Option<String>,
-    pub pending_html: Option<String>,
-    pub pending_size: (u32, u32),
-    pub pending_min_size: Option<(u32, u32)>,
-    pub pending_max_size: Option<(u32, u32)>,
-    pub pending_position: Option<(i32, i32)>,
-    pub pending_resizable: bool,
-    pub pending_fullscreen: bool,
-    pub pending_maximized: bool,
-    pub pending_minimized: bool,
-    pub pending_topmost: bool,
-    pub pending_visible: bool,
-    pub pending_devtools: bool,
-    pub pending_transparent: bool,
-    pub pending_decorations: bool,
-    pub pending_user_agent: Option<String>,
-    pub pending_zoom: f64,
-    pub pending_back_forward_gestures: bool,
-    pub pending_autoplay: bool,
-    pub pending_hotkeys_zoom: bool,
-    pub pending_clipboard: bool,
-    pub pending_accept_first_mouse: bool,
-    pub pending_incognito: bool,
-    pub pending_focused: bool,
-    pub pending_javascript_disabled: bool,
-    pub pending_background_color: Option<(u8, u8, u8, u8)>,
-    pub pending_background_throttling: Option<i32>,
+    pub title: String,
+    pub url: Option<String>,
+    pub html: Option<String>,
+    pub size: (u32, u32),
+    pub min_size: Option<(u32, u32)>,
+    pub max_size: Option<(u32, u32)>,
+    pub position: Option<(i32, i32)>,
+    pub resizable: bool,
+    pub fullscreen: bool,
+    pub maximized: bool,
+    pub minimized: bool,
+    pub topmost: bool,
+    pub visible: bool,
+    pub devtools: bool,
+    pub transparent: bool,
+    pub decorations: bool,
+    pub user_agent: Option<String>,
+    pub zoom: f64,
+    pub back_forward_gestures: bool,
+    pub autoplay: bool,
+    pub hotkeys_zoom: bool,
+    pub clipboard: bool,
+    pub accept_first_mouse: bool,
+    pub incognito: bool,
+    pub focused: bool,
+    pub javascript_disabled: bool,
+    pub background_color: Option<(u8, u8, u8, u8)>,
+    pub background_throttling: Option<i32>,
     #[cfg(target_os = "windows")]
-    pub pending_theme: i32,
+    pub theme: i32,
     #[cfg(target_os = "windows")]
-    pub pending_https_scheme: bool,
+    pub https_scheme: bool,
     #[cfg(target_os = "windows")]
-    pub pending_browser_accelerator_keys: bool,
+    pub browser_accelerator_keys: bool,
     #[cfg(target_os = "windows")]
-    pub pending_default_context_menus: bool,
+    pub default_context_menus: bool,
     #[cfg(target_os = "windows")]
-    pub pending_scroll_bar_style: i32,
-    pub pending_skip_taskbar: bool,
-    pub pending_content_protected: bool,
-    pub pending_shadow: bool,
-    pub pending_always_on_bottom: bool,
-    pub pending_maximizable: bool,
-    pub pending_minimizable: bool,
-    pub pending_closable: bool,
-    pub pending_focusable: bool,
+    pub scroll_bar_style: i32,
+    pub skip_taskbar: bool,
+    pub content_protected: bool,
+    pub shadow: bool,
+    pub always_on_bottom: bool,
+    pub maximizable: bool,
+    pub minimizable: bool,
+    pub closable: bool,
+    pub focusable: bool,
     #[cfg(target_os = "windows")]
-    pub pending_window_classname: Option<String>,
-    pub pending_owner_window_id: Option<usize>,
-    pub pending_parent_window_id: Option<usize>,
-    pub pending_init_scripts: Vec<String>,
-    pub pending_protocols: Vec<PendingProtocol>,
-    pub pending_data_directory: Option<String>,
-    pub pending_icon: Option<Icon>,
+    pub window_classname: Option<String>,
+    pub owner_window_id: Option<usize>,
+    pub parent_window_id: Option<usize>,
+    pub init_scripts: Vec<String>,
+    pub protocols: Vec<PendingProtocol>,
+    pub data_directory: Option<String>,
+    pub icon: Option<Icon>,
     pub ipc_handler: Option<(IpcCallback, usize)>,
     pub close_handler: Option<(CloseCallback, usize)>,
     pub resize_handler: Option<(ResizeCallback, usize)>,
@@ -422,60 +422,60 @@ pub(crate) struct WindowCreatePayload {
 impl Default for WindowCreatePayload {
     fn default() -> Self {
         Self {
-            pending_title: String::new(),
-            pending_url: None,
-            pending_html: None,
-            pending_size: (800, 600),
-            pending_min_size: None,
-            pending_max_size: None,
-            pending_position: None,
-            pending_resizable: true,
-            pending_fullscreen: false,
-            pending_maximized: false,
-            pending_minimized: false,
-            pending_topmost: false,
-            pending_visible: true,
-            pending_devtools: false,
-            pending_transparent: false,
-            pending_decorations: true,
-            pending_user_agent: None,
-            pending_zoom: 1.0,
-            pending_back_forward_gestures: false,
-            pending_autoplay: false,
-            pending_hotkeys_zoom: true,
-            pending_clipboard: false,
-            pending_accept_first_mouse: false,
-            pending_incognito: false,
-            pending_focused: true,
-            pending_javascript_disabled: false,
-            pending_background_color: None,
-            pending_background_throttling: None,
+            title: String::new(),
+            url: None,
+            html: None,
+            size: (800, 600),
+            min_size: None,
+            max_size: None,
+            position: None,
+            resizable: true,
+            fullscreen: false,
+            maximized: false,
+            minimized: false,
+            topmost: false,
+            visible: true,
+            devtools: false,
+            transparent: false,
+            decorations: true,
+            user_agent: None,
+            zoom: 1.0,
+            back_forward_gestures: false,
+            autoplay: false,
+            hotkeys_zoom: true,
+            clipboard: false,
+            accept_first_mouse: false,
+            incognito: false,
+            focused: true,
+            javascript_disabled: false,
+            background_color: None,
+            background_throttling: None,
             #[cfg(target_os = "windows")]
-            pending_theme: 0,
+            theme: 0,
             #[cfg(target_os = "windows")]
-            pending_https_scheme: false,
+            https_scheme: false,
             #[cfg(target_os = "windows")]
-            pending_browser_accelerator_keys: true,
+            browser_accelerator_keys: true,
             #[cfg(target_os = "windows")]
-            pending_default_context_menus: true,
+            default_context_menus: true,
             #[cfg(target_os = "windows")]
-            pending_scroll_bar_style: 0,
-            pending_skip_taskbar: false,
-            pending_content_protected: false,
-            pending_shadow: true,
-            pending_always_on_bottom: false,
-            pending_maximizable: true,
-            pending_minimizable: true,
-            pending_closable: true,
-            pending_focusable: true,
+            scroll_bar_style: 0,
+            skip_taskbar: false,
+            content_protected: false,
+            shadow: true,
+            always_on_bottom: false,
+            maximizable: true,
+            minimizable: true,
+            closable: true,
+            focusable: true,
             #[cfg(target_os = "windows")]
-            pending_window_classname: None,
-            pending_owner_window_id: None,
-            pending_parent_window_id: None,
-            pending_init_scripts: Vec::new(),
-            pending_protocols: Vec::new(),
-            pending_data_directory: None,
-            pending_icon: None,
+            window_classname: None,
+            owner_window_id: None,
+            parent_window_id: None,
+            init_scripts: Vec::new(),
+            protocols: Vec::new(),
+            data_directory: None,
+            icon: None,
             ipc_handler: None,
             close_handler: None,
             resize_handler: None,
@@ -538,27 +538,27 @@ impl WryWindow {
         owner_window: Option<&Window>,
         parent_window: Option<&Window>,
     ) -> Result<(), String> {
-        let (w, h) = payload.pending_size;
+        let (w, h) = payload.size;
         let mut wb = TaoWindowBuilder::new()
-            .with_title(&payload.pending_title)
+            .with_title(&payload.title)
             .with_inner_size(LogicalSize::new(w, h))
-            .with_resizable(payload.pending_resizable)
-            .with_always_on_top(payload.pending_topmost)
-            .with_visible(payload.pending_visible)
-            .with_maximized(payload.pending_maximized)
-            .with_decorations(payload.pending_decorations)
-            .with_content_protection(payload.pending_content_protected)
-            .with_always_on_bottom(payload.pending_always_on_bottom)
-            .with_maximizable(payload.pending_maximizable)
-            .with_minimizable(payload.pending_minimizable)
-            .with_closable(payload.pending_closable)
-            .with_focusable(payload.pending_focusable);
+            .with_resizable(payload.resizable)
+            .with_always_on_top(payload.topmost)
+            .with_visible(payload.visible)
+            .with_maximized(payload.maximized)
+            .with_decorations(payload.decorations)
+            .with_content_protection(payload.content_protected)
+            .with_always_on_bottom(payload.always_on_bottom)
+            .with_maximizable(payload.maximizable)
+            .with_minimizable(payload.minimizable)
+            .with_closable(payload.closable)
+            .with_focusable(payload.focusable);
 
         #[cfg(target_os = "windows")]
         {
-            wb = wb.with_skip_taskbar(payload.pending_skip_taskbar);
-            wb = wb.with_undecorated_shadow(payload.pending_shadow);
-            if let Some(ref class_name) = payload.pending_window_classname {
+            wb = wb.with_skip_taskbar(payload.skip_taskbar);
+            wb = wb.with_undecorated_shadow(payload.shadow);
+            if let Some(ref class_name) = payload.window_classname {
                 if !class_name.is_empty() {
                     wb = wb.with_window_classname(class_name);
                 }
@@ -570,23 +570,23 @@ impl WryWindow {
             #[cfg(target_os = "linux")]
             {
                 use tao::platform::unix::WindowBuilderExtUnix;
-                wb = wb.with_skip_taskbar(payload.pending_skip_taskbar);
+                wb = wb.with_skip_taskbar(payload.skip_taskbar);
             }
         }
 
-        if let Some((min_w, min_h)) = payload.pending_min_size {
+        if let Some((min_w, min_h)) = payload.min_size {
             wb = wb.with_min_inner_size(LogicalSize::new(min_w, min_h));
         }
-        if let Some((max_w, max_h)) = payload.pending_max_size {
+        if let Some((max_w, max_h)) = payload.max_size {
             wb = wb.with_max_inner_size(LogicalSize::new(max_w, max_h));
         }
-        if let Some((x, y)) = payload.pending_position {
+        if let Some((x, y)) = payload.position {
             wb = wb.with_position(LogicalPosition::new(x, y));
         }
-        if payload.pending_fullscreen {
+        if payload.fullscreen {
             wb = wb.with_fullscreen(Some(Fullscreen::Borderless(None)));
         }
-        if let Some(ref icon) = payload.pending_icon {
+        if let Some(ref icon) = payload.icon {
             wb = wb.with_window_icon(Some(icon.clone()));
         }
 
@@ -618,7 +618,7 @@ impl WryWindow {
 
         let window = wb.build(event_loop).map_err(|e| e.to_string())?;
 
-        if let Some(ref dir) = payload.pending_data_directory {
+        if let Some(ref dir) = payload.data_directory {
             self.web_context = Some(WebContext::new(Some(std::path::PathBuf::from(dir))));
         }
 
@@ -628,43 +628,43 @@ impl WryWindow {
             WebViewBuilder::new()
         };
 
-        if let Some(ref url) = payload.pending_url {
+        if let Some(ref url) = payload.url {
             wvb = wvb.with_url(url);
-        } else if let Some(ref html) = payload.pending_html {
+        } else if let Some(ref html) = payload.html {
             wvb = wvb.with_html(html);
         }
 
-        if let Some(ref ua) = payload.pending_user_agent {
+        if let Some(ref ua) = payload.user_agent {
             wvb = wvb.with_user_agent(ua);
         }
 
-        if payload.pending_transparent {
+        if payload.transparent {
             wvb = wvb.with_transparent(true);
         }
 
-        if let Some((r, g, b, a)) = payload.pending_background_color {
+        if let Some((r, g, b, a)) = payload.background_color {
             wvb = wvb.with_background_color((r, g, b, a));
         }
 
         #[cfg(any(debug_assertions, feature = "devtools"))]
         {
-            wvb = wvb.with_devtools(payload.pending_devtools);
+            wvb = wvb.with_devtools(payload.devtools);
         }
-        let _ = payload.pending_devtools;
+        let _ = payload.devtools;
 
-        wvb = wvb.with_back_forward_navigation_gestures(payload.pending_back_forward_gestures);
-        wvb = wvb.with_autoplay(payload.pending_autoplay);
-        wvb = wvb.with_hotkeys_zoom(payload.pending_hotkeys_zoom);
-        wvb = wvb.with_clipboard(payload.pending_clipboard);
-        wvb = wvb.with_accept_first_mouse(payload.pending_accept_first_mouse);
-        wvb = wvb.with_incognito(payload.pending_incognito);
-        wvb = wvb.with_focused(payload.pending_focused);
+        wvb = wvb.with_back_forward_navigation_gestures(payload.back_forward_gestures);
+        wvb = wvb.with_autoplay(payload.autoplay);
+        wvb = wvb.with_hotkeys_zoom(payload.hotkeys_zoom);
+        wvb = wvb.with_clipboard(payload.clipboard);
+        wvb = wvb.with_accept_first_mouse(payload.accept_first_mouse);
+        wvb = wvb.with_incognito(payload.incognito);
+        wvb = wvb.with_focused(payload.focused);
 
-        if payload.pending_javascript_disabled {
+        if payload.javascript_disabled {
             wvb = wvb.with_javascript_disabled();
         }
 
-        if let Some(policy) = payload.pending_background_throttling {
+        if let Some(policy) = payload.background_throttling {
             use wry::BackgroundThrottlingPolicy;
             let p = match policy {
                 0 => BackgroundThrottlingPolicy::Disabled,
@@ -679,23 +679,23 @@ impl WryWindow {
         #[cfg(target_os = "windows")]
         {
             use wry::{Theme, ScrollBarStyle};
-            let theme = match payload.pending_theme {
+            let theme = match payload.theme {
                 1 => Theme::Dark,
                 2 => Theme::Light,
                 _ => Theme::Auto,
             };
             wvb = wvb.with_theme(theme);
-            wvb = wvb.with_https_scheme(payload.pending_https_scheme);
-            wvb = wvb.with_browser_accelerator_keys(payload.pending_browser_accelerator_keys);
-            wvb = wvb.with_default_context_menus(payload.pending_default_context_menus);
-            let style = match payload.pending_scroll_bar_style {
+            wvb = wvb.with_https_scheme(payload.https_scheme);
+            wvb = wvb.with_browser_accelerator_keys(payload.browser_accelerator_keys);
+            wvb = wvb.with_default_context_menus(payload.default_context_menus);
+            let style = match payload.scroll_bar_style {
                 1 => ScrollBarStyle::FluentOverlay,
                 _ => ScrollBarStyle::Default,
             };
             wvb = wvb.with_scroll_bar_style(style);
         }
 
-        for script in &payload.pending_init_scripts {
+        for script in &payload.init_scripts {
             wvb = wvb.with_initialization_script(script);
         }
 
@@ -769,7 +769,7 @@ impl WryWindow {
             });
         }
 
-        for proto in &payload.pending_protocols {
+        for proto in &payload.protocols {
             let cb = proto.callback;
             let ctx = proto.ctx;
             wvb = wvb.with_asynchronous_custom_protocol(proto.scheme.clone(), move |_id, request, responder| {
@@ -818,8 +818,8 @@ impl WryWindow {
             .map_err(|e| e.to_string())?;
 
         // Apply zoom if not default
-        if (payload.pending_zoom - 1.0).abs() > f64::EPSILON {
-            log_err!(webview.zoom(payload.pending_zoom), "zoom (init)");
+        if (payload.zoom - 1.0).abs() > f64::EPSILON {
+            log_err!(webview.zoom(payload.zoom), "zoom (init)");
         }
 
         self.window_id = Some(window.id());
@@ -830,7 +830,7 @@ impl WryWindow {
         self.move_handler = payload.move_handler;
         self.focus_handler = payload.focus_handler;
 
-        if payload.pending_minimized {
+        if payload.minimized {
             if let Some(ref w) = self.window {
                 w.set_minimized(true);
             }
@@ -962,11 +962,11 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                         Some(p) => p,
                         None => continue,
                     };
-                    let owner_window = payload.pending_owner_window_id.and_then(|oid| {
+                    let owner_window = payload.owner_window_id.and_then(|oid| {
                         id_to_window_id.get(&oid).and_then(|tid| live_windows.get(tid))
                             .and_then(|w| w.window.as_ref())
                     });
-                    let parent_window = payload.pending_parent_window_id.and_then(|pid| {
+                    let parent_window = payload.parent_window_id.and_then(|pid| {
                         id_to_window_id.get(&pid).and_then(|tid| live_windows.get(tid))
                             .and_then(|w| w.window.as_ref())
                     });
@@ -1308,11 +1308,11 @@ pub extern "C" fn wry_window_create(
         payload_from_config(config as *const WryWindowConfig)
     };
     if owner_window_id != 0 {
-        payload.pending_owner_window_id = Some(owner_window_id);
-        payload.pending_parent_window_id = None;
+        payload.owner_window_id = Some(owner_window_id);
+        payload.parent_window_id = None;
     } else if parent_window_id != 0 {
-        payload.pending_parent_window_id = Some(parent_window_id);
-        payload.pending_owner_window_id = None;
+        payload.parent_window_id = Some(parent_window_id);
+        payload.owner_window_id = None;
     }
 
     if !app.run_started.load(Ordering::SeqCst) {
