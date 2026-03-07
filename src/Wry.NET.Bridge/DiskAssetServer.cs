@@ -22,6 +22,9 @@ internal sealed class DiskAssetServer
     private readonly string _scheme;
     private readonly ILogger<DiskAssetServer> _logger;
 
+    /// <summary>The custom scheme name (e.g. "app").</summary>
+    public string Scheme => _scheme;
+
     /// <summary>
     /// The entry URL to load in the window (e.g. "app://localhost/index.html").
     /// </summary>
@@ -40,15 +43,8 @@ internal sealed class DiskAssetServer
         EntryUrl = $"{scheme}://localhost/{entryFile}";
     }
 
-    /// <summary>
-    /// Registers the custom protocol handler on the WryWindow.
-    /// Call this before <c>WryApp.Run()</c>.
-    /// </summary>
-    public WryWindow Register(WryWindow window)
-    {
-        window.AddCustomProtocol(_scheme, HandleSchemeRequest);
-        return window;
-    }
+    /// <summary>Handler for create-time protocol registration (ProtocolRequest -> ProtocolResponse).</summary>
+    public ProtocolResponse HandleRequest(ProtocolRequest request) => HandleSchemeRequest(request.Url);
 
     private ProtocolResponse HandleSchemeRequest(string url)
     {

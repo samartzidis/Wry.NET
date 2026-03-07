@@ -64,12 +64,29 @@ public class WryBridge
         return this;
     }
 
+    private const string BridgeInitScript = """
+        (function() {
+            const listeners = [];
+            window.__bridge_receive = function(raw) {
+                for (const cb of listeners) cb(raw);
+            };
+            window.external = window.external || {};
+            window.external.receiveMessage = function(cb) {
+                listeners.push(cb);
+            };
+            window.external.sendMessage = function(msg) {
+                window.ipc.postMessage(msg);
+            };
+        })();
+        """;
+
+    internal static string GetBridgeInitScript() => BridgeInitScript;
+
     /// <summary>
     /// Attach this bridge to a WryWindow. Registers the IPC message handler
-    /// and an init script for C#→JS messaging. Can be called for multiple windows;
-    /// responses are routed back to the window that sent the request, and
+    /// and event subscriptions. Call <see cref="WryWindowExtensions.AddBridge"/> on the window's create options first.
+    /// Responses are routed back to the window that sent the request, and
     /// <see cref="Emit"/> broadcasts to all attached windows.
-    /// Must be called before <see cref="WryApp.Run"/> (or before the window is created for dynamic windows).
     /// </summary>
     public void Attach(WryWindow window)
     {
@@ -79,23 +96,6 @@ public class WryBridge
                 return;
             _attachedWindows.Add(window);
         }
-
-        // Register the init script that sets up the C#→JS message receiver.
-        window.AddInitScript("""
-            (function() {
-                const listeners = [];
-                window.__bridge_receive = function(raw) {
-                    for (const cb of listeners) cb(raw);
-                };
-                window.external = window.external || {};
-                window.external.receiveMessage = function(cb) {
-                    listeners.push(cb);
-                };
-                window.external.sendMessage = function(msg) {
-                    window.ipc.postMessage(msg);
-                };
-            })();
-            """);
 
         window.IpcMessageReceived += (sender, e) => HandleMessage(sender, e.Message);
         window.WindowDestroyed += OnAttachedWindowDestroyed;

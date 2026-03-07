@@ -2,103 +2,188 @@
 
 This document describes what the **wry-native** C API exposes. Desktop only (Windows, Linux, macOS).
 
-- **wry 0.54** — WebView/window API; ~60–70% of wry’s public API covered below.
-- **App lifecycle** — Exit-requested callback, programmatic exit, window-created and window-creation-error callbacks; dynamic window creation (sync on main thread, async via queue).
-- **tray-icon 0.21** — System tray icons and context menus; coverage table below.
-- **rfd 0.17** — Native dialogs (message, ask, confirm, open, save); coverage table below.
+- **wry 0.54** - WebView API (builder options, runtime methods, events); ~60-70% of wry's public API covered below.
+- **tao 0.34** - Windowing API (title, size, position, decorations, fullscreen, etc.); most of tao's `Window` and `WindowBuilder` surface area is covered.
+- **App lifecycle** - Exit-requested callback, programmatic exit, window-created / window-creation-error / window-destroyed callbacks; dynamic window creation via `wry_window_create` with `WryWindowConfig`.
+- **tray-icon 0.21** - System tray icons and context menus; coverage table below.
+- **rfd 0.17** - Native dialogs (message, ask, confirm, open, save); coverage table below.
 
 **Covered?** ✓ = yes, ✗ = no.
 
+All window and webview builder options are passed at creation time via `WryWindowConfig` (a flat `#[repr(C)]` struct). Runtime setters operate on a live window pointer.
+
+## Window API (tao 0.34)
+
+| Category | tao API | Covered? | wry-native / Notes |
+|----------|---------|:--------:|--------------------|
+| **Creation** | `WindowBuilder::new()` | ✓ | `wry_window_create` with `WryWindowConfig`; one tao window per webview |
+| **Config** | `with_title` | ✓ | `WryWindowConfig.title` |
+| **Config** | `with_inner_size` | ✓ | `WryWindowConfig.width`, `WryWindowConfig.height` |
+| **Config** | `with_min_inner_size` / `with_max_inner_size` | ✓ | `WryWindowConfig.min_width/min_height`, `WryWindowConfig.max_width/max_height` |
+| **Config** | `with_position` | ✓ | `WryWindowConfig.x`, `WryWindowConfig.y` |
+| **Config** | (center on primary monitor) | ✓ | `WryWindowConfig.center` |
+| **Config** | `with_resizable` | ✓ | `WryWindowConfig.resizable` |
+| **Config** | `with_fullscreen` | ✓ | `WryWindowConfig.fullscreen` |
+| **Config** | `with_maximized` | ✓ | `WryWindowConfig.maximized` |
+| **Config** | `with_minimized` | ✓ | `WryWindowConfig.minimized` |
+| **Config** | `with_visible` | ✓ | `WryWindowConfig.visible` |
+| **Config** | `with_decorations` | ✓ | `WryWindowConfig.decorations` |
+| **Config** | `with_always_on_top` | ✓ | `WryWindowConfig.topmost` |
+| **Config** | `with_skip_taskbar` | ✓ | `WryWindowConfig.skip_taskbar` |
+| **Config** | `with_content_protection` | ✓ | `WryWindowConfig.content_protected` |
+| **Config** | (window shadow) | ✓ | `WryWindowConfig.shadow` (Win) |
+| **Config** | `with_always_on_bottom` | ✓ | `WryWindowConfig.always_on_bottom` |
+| **Config** | `with_maximizable` | ✓ | `WryWindowConfig.maximizable` |
+| **Config** | `with_minimizable` | ✓ | `WryWindowConfig.minimizable` |
+| **Config** | `with_closable` | ✓ | `WryWindowConfig.closable` |
+| **Config** | `with_focused` | ✓ | `WryWindowConfig.focusable` |
+| **Config (Win)** | `with_window_classname` | ✓ | `WryWindowConfig.window_classname` |
+| **Config** | `with_owner_window` / `with_parent_window` | ✓ | `WryWindowConfig.owner_window_id`, `WryWindowConfig.parent_window_id` |
+| **Config** | `with_window_icon` | ✓ | `WryWindowConfig.icon_path` |
+| **Config (Win)** | `with_theme` | ✓ | `WryWindowConfig.theme` (0=Auto, 1=Dark, 2=Light) |
+| **Runtime** | `set_title` / `title` | ✓ | `wry_window_get_title`, `wry_window_set_title` |
+| **Runtime** | `set_inner_size` / `inner_size` | ✓ | `wry_window_get_size`, `wry_window_set_size` |
+| **Runtime** | `set_outer_position` / `outer_position` | ✓ | `wry_window_get_position`, `wry_window_set_position` |
+| **Runtime** | `set_min_inner_size` / `set_max_inner_size` | ✓ | `wry_window_set_min_size`, `wry_window_set_max_size` |
+| **Runtime** | `set_resizable` / `is_resizable` | ✓ | `wry_window_get_resizable`, `wry_window_set_resizable` |
+| **Runtime** | `set_fullscreen` / `fullscreen` | ✓ | `wry_window_get_fullscreen`, `wry_window_set_fullscreen` |
+| **Runtime** | `set_maximized` / `is_maximized` | ✓ | `wry_window_get_maximized`, `wry_window_set_maximized` |
+| **Runtime** | `set_minimized` / `is_minimized` | ✓ | `wry_window_get_minimized`, `wry_window_set_minimized` |
+| **Runtime** | `set_visible` / `is_visible` | ✓ | `wry_window_get_visible`, `wry_window_set_visible` |
+| **Runtime** | `set_decorations` / `is_decorated` | ✓ | `wry_window_get_decorated`, `wry_window_set_decorations` |
+| **Runtime** | `set_always_on_top` | ✓ | `wry_window_set_topmost` |
+| **Runtime** | `set_skip_taskbar` | ✓ | `wry_window_set_skip_taskbar` |
+| **Runtime** | `set_content_protection` | ✓ | `wry_window_set_content_protected` |
+| **Runtime** | (set shadow) | ✓ | `wry_window_set_shadow` (Win) |
+| **Runtime** | `set_always_on_bottom` | ✓ | `wry_window_set_always_on_bottom` |
+| **Runtime** | `set_maximizable` / `set_minimizable` / `set_closable` | ✓ | `wry_window_set_maximizable`, `wry_window_set_minimizable`, `wry_window_set_closable` |
+| **Runtime** | `set_focusable` | ✓ | `wry_window_set_focusable` |
+| **Runtime (Win)** | `set_theme` / `theme` | ✓ | `wry_window_get_theme`, `wry_window_set_theme` |
+| **Runtime** | `set_window_icon` | ✓ | `wry_window_set_icon` (RGBA), `wry_window_set_icon_from_bytes` (encoded image) |
+| **Runtime** | (close / restore) | ✓ | `wry_window_close`, `wry_window_restore` |
+| **Runtime** | (center on primary monitor) | ✓ | `wry_window_center` |
+| **Runtime** | `set_focus` | ✓ | `wry_window_focus` |
+| **Runtime** | `scale_factor` | ✓ | `wry_window_get_screen_dpi` |
+| **Events** | `CloseRequested` / `Resized` / `Moved` / `Focused` | ✓ | `WryWindowConfig.*` callback fields |
+| **Events** | `Destroyed` | ✓ | `wry_app_on_window_destroyed` callback |
+| **Threading** | (cross-thread via event loop proxy) | ✓ | `wry_window_dispatch` |
+| **Utility** | `available_monitors` | ✓ | `wry_window_get_all_monitors` |
+| **Not covered** | `with_inner_size_constraints` / `set_inner_size_constraints` | ✗ | WindowSizeConstraints struct; use min/max size instead |
+| **Not covered** | `with_transparent` | ✗ | Window-level transparency (different from wry's webview transparency) |
+| **Not covered** | `with_visible_on_all_workspaces` / `set_visible_on_all_workspaces` | ✗ | macOS/Linux only |
+| **Not covered** | `with_background_color` / `set_background_color` | ✗ | Window background; wry's webview background color is exposed instead |
+| **Not covered** | `request_redraw` | ✗ | Not exposed |
+| **Not covered** | `inner_position` / `outer_size` | ✗ | Only outer position and inner size exposed |
+| **Not covered** | `is_focused` / `is_always_on_top` | ✗ | Getters not exposed |
+| **Not covered** | `is_minimizable` / `is_maximizable` / `is_closable` | ✗ | Getters not exposed (setters are) |
+| **Not covered** | `set_ime_position` / `ReceivedImeText` | ✗ | IME not exposed |
+| **Not covered** | `set_progress_bar` | ✗ | Taskbar progress not exposed |
+| **Not covered** | `request_user_attention` | ✗ | Not exposed |
+| **Not covered** | Cursor: `set_cursor_icon`, `set_cursor_position`, `set_cursor_grab`, `set_cursor_visible`, `cursor_position`, `set_ignore_cursor_events` | ✗ | None exposed |
+| **Not covered** | `drag_window` / `drag_resize_window` | ✗ | Not exposed |
+| **Not covered** | `current_monitor` / `primary_monitor` / `monitor_from_point` | ✗ | Only `available_monitors` exposed |
+| **Not covered** | Events: `KeyboardInput`, `ModifiersChanged`, `CursorMoved`, `CursorEntered`, `CursorLeft`, `MouseWheel`, `MouseInput` | ✗ | Input events not exposed |
+| **Not covered** | Events: `DroppedFile`, `HoveredFile`, `HoveredFileCancelled` | ✗ | File drop via wry's drag-drop handler instead |
+| **Not covered** | Events: `Touch`, `TouchpadPressure`, `AxisMotion` | ✗ | Touch/pressure not exposed |
+| **Not covered** | Events: `ScaleFactorChanged`, `ThemeChanged`, `DecorationsClick` | ✗ | Not exposed |
+| **Not covered (Win)** | `with_menu`, `with_taskbar_icon`, `with_no_redirection_bitmap`, `with_drag_and_drop`, `with_rtl` | ✗ | None exposed |
+| **Not covered (Win)** | `hwnd`, `hinstance`, `set_enable`, `set_taskbar_icon`, `set_overlay_icon`, `set_undecorated_shadow`, `set_rtl` | ✗ | None exposed |
+| **Not covered (macOS)** | `with_movable_by_window_background`, `with_titlebar_transparent`, `with_title_hidden`, `with_titlebar_hidden`, `with_titlebar_buttons_hidden`, `with_fullsize_content_view` | ✗ | None exposed |
+| **Not covered (macOS)** | `with_resize_increments`, `with_disallow_hidpi`, `with_has_shadow`, `with_traffic_light_inset`, `with_automatic_window_tabbing`, `with_tabbing_identifier` | ✗ | None exposed |
+| **Not covered (macOS)** | `ns_window`, `ns_view`, `simple_fullscreen`, `set_has_shadow`, `set_traffic_light_inset`, `set_is_document_edited`, tabbing, `set_badge_label` | ✗ | None exposed |
+| **Not covered (Unix)** | `with_transparent_draw`, `with_double_buffered`, `with_rgba_visual`, `with_app_paintable`, `with_cursor_moved_event`, `with_default_vbox` | ✗ | None exposed |
+| **Not covered (Unix)** | `gtk_window`, `default_vbox`, `set_badge_count` | ✗ | None exposed |
+
+## WebView API (wry 0.54)
+
 | Category | wry API | Covered? | wry-native / Notes |
 |----------|---------|:--------:|--------------------|
-| **Window** | (one window per tao window) | ✓ | `wry_window_new`; configure before run, then callbacks/dispatch |
-| **Builder** | `with_url` | ✓ | `wry_window_load_url` |
-| **Builder** | `with_html` | ✓ | `wry_window_load_html` |
-| **Builder** | `with_user_agent` | ✓ | `wry_window_set_user_agent` |
-| **Builder** | `with_initialization_script` | ✓ | `wry_window_add_init_script` |
-| **Builder** | `with_ipc_handler` | ✓ | `wry_window_set_ipc_handler` |
-| **Builder** | `with_asynchronous_custom_protocol` | ✓ | `wry_window_add_custom_protocol` + `wry_protocol_respond` |
-| **Builder** | `with_transparent` | ✓ | `wry_window_set_transparent` |
-| **Builder** | `with_devtools` | ✓ | `wry_window_set_devtools` |
-| **Builder** | `with_visible` | ✓ | `wry_window_set_visible` |
-| **Builder** | (title, size, min/max, position, resizable, fullscreen, maximized, minimized, topmost, decorations, zoom, center) | ✓ | `wry_window_set_*` (pre-run), `wry_window_set_*_direct` / getters (post-run) |
-| **Builder** | skip_taskbar, content_protected, shadow, always_on_bottom, maximizable, minimizable, closable, focusable, window_classname | ✓ | `wry_window_set_skip_taskbar`, `wry_window_set_content_protected`, `wry_window_set_shadow` (Win), `wry_window_set_always_on_bottom`, `wry_window_set_maximizable`, `wry_window_set_minimizable`, `wry_window_set_closable`, `wry_window_set_focusable`, `wry_window_set_window_classname` (Win); each has `_direct` where runtime change is supported |
-| **Builder** | owner window / parent window (owned or child) | ✓ | `wry_window_set_owner_window`, `wry_window_set_parent_window`; builder-only; owner/parent must have lower id (created first). Only one per window. Win: with_owner_window/with_parent_window; macOS: with_parent_window(ns_window); Linux: with_transient_for(gtk_window). |
-| **Runtime** | prevent_overflow (keep window on monitor) | ✓ | `wry_window_set_prevent_overflow`, `wry_window_set_prevent_overflow_margin`; clamp on Moved/Resized; optional margin (left, top, right, bottom). `_direct` for post-run. Cross-platform. |
-| **Builder** | `with_back_forward_navigation_gestures` | ✓ | `wry_window_set_back_forward_gestures` |
-| **Builder** | `with_background_color` | ✓ | `wry_window_set_background_color` (pre-run) |
-| **Builder** | `with_autoplay` | ✓ | `wry_window_set_autoplay` |
-| **Builder** | `with_hotkeys_zoom` | ✓ | `wry_window_set_hotkeys_zoom` |
-| **Builder** | `with_clipboard` | ✓ | `wry_window_set_clipboard` |
-| **Builder** | `with_accept_first_mouse` | ✓ | `wry_window_set_accept_first_mouse` (macOS) |
-| **Builder** | `with_incognito` | ✓ | `wry_window_set_incognito` |
-| **Builder** | `with_focused` | ✓ | `wry_window_set_focused` |
-| **Builder** | `with_background_throttling` | ✓ | `wry_window_set_background_throttling` (0=Disabled, 1=Suspend, 2=Throttle) |
-| **Builder** | `with_javascript_disabled` | ✓ | `wry_window_set_javascript_disabled` |
-| **WebView** | `evaluate_script` | ✓ | `wry_window_eval_js` (fire-and-forget; use `wry_window_eval_js_callback` for result) |
-| **WebView** | `url()` | ✓ | `wry_window_get_url` |
-| **WebView** | `load_url` | ✓ | `wry_window_load_url` / `wry_window_load_url_direct` |
-| **WebView** | `load_html` | ✓ | `wry_window_load_html` / `wry_window_load_html_direct` |
-| **WebView** | `zoom` | ✓ | `wry_window_set_zoom` / `wry_window_set_zoom_direct` |
-| **WebView** | `set_visible` | ✓ | `wry_window_set_visible_direct` |
-| **WebView** | `print()` | ✓ | `wry_window_print` |
-| **WebView** | `reload()` | ✓ | `wry_window_reload` |
-| **WebView** | `focus()` | ✓ | `wry_window_focus` |
-| **WebView** | `focus_parent()` | ✓ | `wry_window_focus_parent` |
-| **WebView** | `clear_all_browsing_data` | ✓ | `wry_window_clear_all_browsing_data` |
-| **WebView** | `set_background_color` | ✓ | `wry_window_set_background_color_direct` (RGBA) |
-| **WebView** | `open_devtools` | ✓ | `wry_window_open_devtools` |
-| **WebView** | `close_devtools` | ✓ | `wry_window_close_devtools` |
-| **WebView** | `is_devtools_open` | ✓ | `wry_window_is_devtools_open` |
-| **WebView** | `webview_version()` | ✓ | `wry_webview_version` (standalone) |
-| **Events** | close / resize / move / focus | ✓ | `wry_window_on_close`, `on_resize`, `on_move`, `on_focus` |
-| **Threading** | (cross-thread) | ✓ | `wry_window_dispatch` |
-| **Utility** | (monitors) | ✓ | `wry_window_get_all_monitors` |
-| **Post-run** | close, restore; window state getters/setters | ✓ | `wry_window_close`, `wry_window_restore`; direct setters and getters |
-| **Builder (Win)** | `with_theme` | ✓ | `wry_window_set_theme` (0=Auto, 1=Dark, 2=Light) |
-| **Builder (Win)** | `with_https_scheme` | ✓ | `wry_window_set_https_scheme` |
-| **Builder (Win)** | `with_browser_accelerator_keys` | ✓ | `wry_window_set_browser_accelerator_keys` |
-| **Builder (Win)** | `with_default_context_menus` | ✓ | `wry_window_set_default_context_menus` |
-| **Builder (Win)** | `with_scroll_bar_style` | ✓ | `wry_window_set_scroll_bar_style` (0=Default, 1=FluentOverlay) |
-| **Builder** | `with_id` / WebViewId | ✗ | Not exposed |
-| **Builder** | `with_initialization_script_for_main_only` | ✗ | Single init-script type only; no main vs subframe |
-| **Builder** | `with_url_and_headers` / `with_headers` | ✗ | URL only, no headers |
-| **Builder** | `with_navigation_handler` | ✓ | `wry_window_set_navigation_handler` — return true/false to allow/block |
-| **Builder** | `with_download_started_handler` | ✗ | Not exposed |
-| **Builder** | `with_download_completed_handler` | ✗ | Not exposed |
-| **Builder** | `with_new_window_req_handler` | ✗ | No `window.open` handling |
-| **Builder** | `with_document_title_changed_handler` | ✗ | Not exposed |
-| **Builder** | `with_on_page_load_handler` | ✓ | `wry_window_set_page_load_handler` — event 0=Started, 1=Finished |
-| **Builder** | `with_proxy_config` | ✗ | Not exposed |
-| **Builder** | `with_bounds` | ✗ | Child webview bounds; not exposed |
-| **Builder** | `build_as_child` | ✗ | One full-window webview only |
-| **Builder** | `with_drag_drop_handler` | ✓ | `wry_window_on_drag_drop` — event types: Enter/Over/Drop/Leave |
-| **Builder** | `new_with_web_context` / shared WebContext | ✗ | Not exposed |
-| **Builder (Win)** | `with_additional_browser_args`, `with_browser_extensions_enabled`, `with_extensions_path`, `with_environment` | ✗ | Not exposed |
-| **Builder (macOS)** | `with_traffic_light_inset`, `with_allow_link_preview`, `with_webview_configuration`, data store, etc. | ✗ | None exposed |
-| **Builder (Unix)** | `build_gtk`, `with_related_view`, `with_extensions_path` | ✗ | None exposed |
-| **WebView** | `evaluate_script_with_callback` | ✓ | `wry_window_eval_js_callback` — result via callback |
-| **WebView** | `cookies_for_url`, `cookies`, `set_cookie`, `delete_cookie` | ✗ | Not exposed |
-| **WebView** | `load_url_with_headers` | ✗ | Not exposed |
-| **WebView** | `bounds()`, `set_bounds()` | ✗ | Child/positioning; not exposed |
-| **WebView (Win)** | `controller()`, `environment()`, `webview()`, `set_theme()`, `set_memory_usage_level()`, `reparent()` | ✗ | None exposed |
-| **WebView (Unix)** | `new_gtk()`, `webview()`, `reparent()` | ✗ | None exposed |
-| **WebView (macOS)** | `print_with_options()`, data store APIs, `webview()`, `manager()`, `ns_window()`, `reparent()`, `set_traffic_light_inset()` | ✗ | None exposed |
-| **Types** | NewWindowResponse, NewWindowOpener, NewWindowFeatures | ✗ | Not exposed |
-| **Types** | DragDropEvent, custom handler | ✓ | Exposed via `wry_window_on_drag_drop` callback |
-| **Types** | PageLoadEvent, on_page_load_handler | ✓ | Exposed via `wry_window_set_page_load_handler` |
-| **Types** | ProxyConfig, ProxyEndpoint | ✗ | Not exposed |
-| **Types** | WebContext, Rect (first-class), InitializationScript (main-only), MemoryUsageLevel; wry Error/Result | ✗ | Not exposed |
+| **Config** | `with_url` | ✓ | `WryWindowConfig.url` |
+| **Config** | `with_html` | ✓ | `WryWindowConfig.html` |
+| **Config** | `with_user_agent` | ✓ | `WryWindowConfig.user_agent` |
+| **Config** | `with_initialization_script` | ✓ | `WryWindowConfig.init_scripts` (array of C strings) |
+| **Config** | `with_ipc_handler` | ✓ | `WryWindowConfig.ipc_handler` callback |
+| **Config** | `with_asynchronous_custom_protocol` | ✓ | `WryWindowConfig.protocols` (scheme + callback array) + `wry_protocol_respond` |
+| **Config** | `with_transparent` | ✓ | `WryWindowConfig.transparent` |
+| **Config** | `with_devtools` | ✓ | `WryWindowConfig.devtools` |
+| **Config** | `with_back_forward_navigation_gestures` | ✓ | `WryWindowConfig.back_forward_gestures` |
+| **Config** | `with_background_color` | ✓ | `WryWindowConfig.bg_r/g/b/a` |
+| **Config** | `with_autoplay` | ✓ | `WryWindowConfig.autoplay` |
+| **Config** | `with_hotkeys_zoom` | ✓ | `WryWindowConfig.hotkeys_zoom` |
+| **Config** | `with_clipboard` | ✓ | `WryWindowConfig.clipboard` |
+| **Config** | `with_accept_first_mouse` | ✓ | `WryWindowConfig.accept_first_mouse` (macOS) |
+| **Config** | `with_incognito` | ✓ | `WryWindowConfig.incognito` |
+| **Config** | `with_focused` | ✓ | `WryWindowConfig.focused` |
+| **Config** | `with_background_throttling` | ✓ | `WryWindowConfig.background_throttling` (0=Disabled, 1=Suspend, 2=Throttle) |
+| **Config** | `with_javascript_disabled` | ✓ | `WryWindowConfig.javascript_disabled` |
+| **Config** | `with_navigation_handler` | ✓ | `WryWindowConfig.navigation_handler` callback |
+| **Config** | `with_on_page_load_handler` | ✓ | `WryWindowConfig.page_load_handler` callback |
+| **Config** | `with_drag_drop_handler` | ✓ | `WryWindowConfig.drag_drop_handler` callback |
+| **Config (Win)** | `with_https_scheme` | ✓ | `WryWindowConfig.https_scheme` |
+| **Config (Win)** | `with_browser_accelerator_keys` | ✓ | `WryWindowConfig.browser_accelerator_keys` |
+| **Config (Win)** | `with_default_context_menus` | ✓ | `WryWindowConfig.default_context_menus` |
+| **Config (Win)** | `with_scroll_bar_style` | ✓ | `WryWindowConfig.scroll_bar_style` (0=Default, 1=FluentOverlay) |
+| **Runtime** | `evaluate_script` | ✓ | `wry_window_eval_js` (fire-and-forget) |
+| **Runtime** | `evaluate_script_with_callback` | ✓ | `wry_window_eval_js_callback` (result via callback) |
+| **Runtime** | `url()` | ✓ | `wry_window_get_url` |
+| **Runtime** | `load_url` | ✓ | `wry_window_load_url` |
+| **Runtime** | `load_html` | ✓ | `wry_window_load_html` |
+| **Runtime** | `zoom` | ✓ | `wry_window_set_zoom` |
+| **Runtime** | `set_background_color` | ✓ | `wry_window_set_background_color` (RGBA) |
+| **Runtime** | `print()` | ✓ | `wry_window_print` |
+| **Runtime** | `reload()` | ✓ | `wry_window_reload` |
+| **Runtime** | `focus()` | ✓ | `wry_window_focus` |
+| **Runtime** | `focus_parent()` | ✓ | `wry_window_focus_parent` |
+| **Runtime** | `clear_all_browsing_data` | ✓ | `wry_window_clear_all_browsing_data` |
+| **Runtime** | `open_devtools` | ✓ | `wry_window_open_devtools` |
+| **Runtime** | `close_devtools` | ✓ | `wry_window_close_devtools` |
+| **Runtime** | `is_devtools_open` | ✓ | `wry_window_is_devtools_open` |
+| **Runtime** | `webview_version()` | ✓ | `wry_webview_version` (standalone) |
+| **Not covered** | `with_id` | ✗ | WebViewId not exposed |
+| **Not covered** | `with_initialization_script_for_main_only` | ✗ | Single init-script type only; no main vs subframe distinction |
+| **Not covered** | `with_url_and_headers` / `with_headers` | ✗ | URL only, no custom headers |
+| **Not covered** | `with_custom_protocol` (sync) | ✗ | Only async variant (`with_asynchronous_custom_protocol`) is exposed |
+| **Not covered** | `with_download_started_handler` | ✗ | Download events not exposed |
+| **Not covered** | `with_download_completed_handler` | ✗ | Download events not exposed |
+| **Not covered** | `with_new_window_req_handler` | ✗ | No `window.open` handling |
+| **Not covered** | `with_document_title_changed_handler` | ✗ | Not exposed |
+| **Not covered** | `with_proxy_config` | ✗ | ProxyConfig (HTTP CONNECT, SOCKSv5) not exposed |
+| **Not covered** | `with_bounds` / `bounds()` / `set_bounds()` | ✗ | Child webview positioning; one full-window webview only |
+| **Not covered** | `build_as_child` / `new_as_child` | ✗ | One full-window webview only |
+| **Not covered** | `new_with_web_context` | ✗ | Shared WebContext not exposed |
+| **Not covered** | `id()` | ✗ | Runtime webview id getter not exposed |
+| **Not covered** | `set_visible` (runtime) | ✗ | Webview-level visibility not exposed (window-level is) |
+| **Not covered** | `load_url_with_headers` | ✗ | No custom headers support |
+| **Not covered** | `cookies_for_url` / `cookies` / `set_cookie` / `delete_cookie` | ✗ | Cookie API not exposed |
+| **Not covered (Win)** | `with_additional_browser_args` | ✗ | Extra WebView2 args not exposed |
+| **Not covered (Win)** | `with_browser_extensions_enabled` / `with_extensions_path` | ✗ | Browser extensions not exposed |
+| **Not covered (Win)** | `with_environment` | ✗ | Shared WebView2 environment not exposed |
+| **Not covered (Win)** | `controller()` / `environment()` / `webview()` | ✗ | Native WebView2 handles not exposed |
+| **Not covered (Win)** | `set_memory_usage_level` | ✗ | Memory usage target not exposed |
+| **Not covered (Win)** | `reparent` | ✗ | Not exposed |
+| **Not covered (Darwin)** | `with_data_store_identifier` | ✗ | Custom data store not exposed (macOS 14+, iOS 17+) |
+| **Not covered (Darwin)** | `with_on_web_content_process_terminate_handler` | ✗ | Web content process crash handler not exposed |
+| **Not covered (Darwin)** | `with_allow_link_preview` | ✗ | Link preview on long press not exposed |
+| **Not covered (Darwin)** | `fetch_data_store_identifiers` / `remove_data_store` | ✗ | Data store management not exposed |
+| **Not covered (macOS)** | `with_webview_configuration` | ✗ | Custom WKWebViewConfiguration not exposed |
+| **Not covered (macOS)** | `with_traffic_light_inset` / `set_traffic_light_inset` | ✗ | Traffic light positioning not exposed |
+| **Not covered (macOS)** | `print_with_options` | ✗ | Print with extra options not exposed |
+| **Not covered (macOS)** | `webview()` / `manager()` / `ns_window()` | ✗ | Native WKWebView handles not exposed |
+| **Not covered (macOS)** | `reparent` | ✗ | Not exposed |
+| **Not covered (Unix)** | `build_gtk` / `new_gtk` | ✗ | GTK widget building not exposed |
+| **Not covered (Unix)** | `with_related_view` | ✗ | Related webview for `window.open` not exposed |
+| **Not covered (Unix)** | `with_extensions_path` | ✗ | Browser extensions not exposed |
+| **Not covered (Unix)** | `webview()` / `reparent` | ✗ | Native WebKit2GTK handles not exposed |
 
 ## Dialog API (rfd 0.17)
 
 | Category | API | wry-native |
 |----------|-----|------------|
-| **Message** | message box with buttons | `wry_dialog_message(title, message, kind, buttons)` — kind: 0=Info, 1=Warning, 2=Error; buttons: 0=Ok, 1=OkCancel, 2=YesNo, 3=YesNoCancel; returns button label (caller frees with `wry_string_free`) |
-| **Ask** | Yes/No dialog | `wry_dialog_ask(title, message, kind)` — returns true for Yes, false for No/Cancel |
-| **Confirm** | Ok/Cancel dialog | `wry_dialog_confirm(title, message, kind)` — returns true for Ok, false for Cancel |
-| **Open** | file or folder picker | `wry_dialog_open(title, default_path, directory, multiple, filter_name, filter_extensions)` — returns path(s) as newline-separated string or null (caller frees with `wry_string_free`) |
-| **Save** | save file dialog | `wry_dialog_save(title, default_path, filter_name, filter_extensions)` — returns path or null (caller frees with `wry_string_free`) |
+| **Message** | message box with buttons | `wry_dialog_message(title, message, kind, buttons)` - kind: 0=Info, 1=Warning, 2=Error; buttons: 0=Ok, 1=OkCancel, 2=YesNo, 3=YesNoCancel; returns button label (caller frees with `wry_string_free`) |
+| **Ask** | Yes/No dialog | `wry_dialog_ask(title, message, kind)` - returns true for Yes, false for No/Cancel |
+| **Confirm** | Ok/Cancel dialog | `wry_dialog_confirm(title, message, kind)` - returns true for Ok, false for Cancel |
+| **Open** | file or folder picker | `wry_dialog_open(title, default_path, directory, multiple, filter_name, filter_extensions)` - returns path(s) as newline-separated string or null (caller frees with `wry_string_free`) |
+| **Save** | save file dialog | `wry_dialog_save(title, default_path, filter_name, filter_extensions)` - returns path or null (caller frees with `wry_string_free`) |
 
 ## App lifecycle
 
@@ -106,11 +191,11 @@ This document describes what the **wry-native** C API exposes. Desktop only (Win
 |----------|-----|------------|
 | **App** | Create / run / destroy | `wry_app_new`, `wry_app_run`, `wry_app_destroy` |
 | **App** | Exit requested callback | `wry_app_on_exit_requested` - fires when all windows close or on `wry_app_exit`; callback receives `has_code` + `code`, returns bool (allow/prevent) |
-| **App** | Window created callback | `wry_app_on_window_created` - fires when a window is materialized and live (initial or dynamic); callback receives `ctx`, `window_id`, `window_ptr` |
-| **App** | Window creation error callback | `wry_app_on_window_creation_error` - fires when dynamic window creation fails (async path); callback receives `ctx`, `window_id`, `error_message` (UTF-8) |
+| **App** | Window created callback | `wry_app_on_window_created` - fires when a window is materialized and live; callback receives `ctx`, `window_id`, `window_ptr` |
+| **App** | Window creation error callback | `wry_app_on_window_creation_error` - fires when dynamic window creation fails; callback receives `ctx`, `window_id`, `error_message` (UTF-8) |
 | **App** | Window destroyed callback | `wry_app_on_window_destroyed` - fires when a window has been destroyed (platform Destroyed event); callback receives `ctx`, `window_id` |
 | **App** | Programmatic exit | `wry_app_exit(app, code)` - request exit from any thread; fires exit-requested callback with the code |
-| **Window** | Dynamic creation | `wry_window_new` after run: if called on main thread (e.g. from a Dispatch), window is created synchronously; otherwise queued and created on main thread. Returns 0 on sync creation failure. |
+| **Window** | Dynamic creation | `wry_window_create` with `WryWindowConfig`; if called on main thread, created synchronously; otherwise queued and created on main thread. Returns 0 on sync creation failure. |
 
 ## tray-icon API coverage (tray-icon 0.21)
 
@@ -137,5 +222,3 @@ This document describes what the **wry-native** C API exposes. Desktop only (Win
 | **Menu** | Accelerators / keyboard shortcuts | ✗ | Not exposed |
 | **Menu** | `PredefinedMenuItem` (Copy, Paste, etc.) | ✗ | Only separator exposed |
 | **Menu** | `IconMenuItem` | ✗ | Not exposed |
-
-

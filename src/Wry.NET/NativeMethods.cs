@@ -42,67 +42,130 @@ internal static partial class NativeMethods
     // Window creation
     // -----------------------------------------------------------------------
 
-    [LibraryImport(LibName)]
-    internal static partial nuint wry_window_new(nint app);
+    /// <summary>
+    /// One protocol handler entry for WryWindowConfig. Layout must match Rust WryProtocolEntry.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct WryProtocolEntryNative
+    {
+        internal nint Scheme;   // UTF-8, must stay valid for duration of wry_window_create
+        internal nint Callback; // ProtocolHandlerCallback function pointer
+        internal nint Context;
+    }
 
+    /// <summary>
+    /// Native config struct for wry_window_create. Layout must match Rust WryWindowConfig (repr C).
+    /// String fields are UTF-8 pointers; null = not set. Caller must pin/allocate string memory for the duration of the call.
+    /// Protocols: pointer to array of WryProtocolEntryNative; use null if ProtocolCount is 0.
+    /// </summary>
+    [StructLayout(LayoutKind.Sequential)]
+    internal struct WryWindowConfigNative
+    {
+        internal nint Title;
+        internal nint Url;
+        internal nint Html;
+        internal int Width;
+        internal int Height;
+        internal nint DataDirectory;
+        internal int ProtocolCount;
+        internal nint Protocols;
+        internal int DefaultContextMenus;
+        internal nint IconData;
+        internal int IconDataLen;
+        internal int InitScriptCount;
+        internal nint InitScripts;
+
+        // Window properties
+        internal int MinWidth;
+        internal int MinHeight;
+        internal int MaxWidth;
+        internal int MaxHeight;
+        internal int HasPosition;
+        internal int X;
+        internal int Y;
+        internal int Resizable;
+        internal int Fullscreen;
+        internal int Maximized;
+        internal int Minimized;
+        internal int Topmost;
+        internal int Visible;
+        internal int Devtools;
+        internal int Transparent;
+        internal int Decorations;
+        internal nint UserAgent;
+        internal double Zoom;
+        internal int BackForwardGestures;
+        internal int Autoplay;
+        internal int HotkeysZoom;
+        internal int Clipboard;
+        internal int AcceptFirstMouse;
+        internal int Incognito;
+        internal int Focused;
+        internal int JavascriptDisabled;
+        internal int HasBackgroundColor;
+        internal byte BgR;
+        internal byte BgG;
+        internal byte BgB;
+        internal byte BgA;
+        internal int HasBackgroundThrottling;
+        internal int BackgroundThrottling;
+        internal int Theme;
+        internal int HttpsScheme;
+        internal int BrowserAcceleratorKeys;
+        internal int ScrollBarStyle;
+        internal int SkipTaskbar;
+        internal int ContentProtected;
+        internal int Shadow;
+        internal int AlwaysOnBottom;
+        internal int Maximizable;
+        internal int Minimizable;
+        internal int Closable;
+        internal int Focusable;
+        internal nint WindowClassname;
+        internal nuint OwnerWindowId;
+        internal nuint ParentWindowId;
+
+        // Event callbacks: function pointer + opaque context. 0 = not set.
+        internal nint IpcHandler;
+        internal nint IpcHandlerCtx;
+        internal nint CloseHandler;
+        internal nint CloseHandlerCtx;
+        internal nint ResizeHandler;
+        internal nint ResizeHandlerCtx;
+        internal nint MoveHandler;
+        internal nint MoveHandlerCtx;
+        internal nint FocusHandler;
+        internal nint FocusHandlerCtx;
+        internal nint NavigationHandler;
+        internal nint NavigationHandlerCtx;
+        internal nint PageLoadHandler;
+        internal nint PageLoadHandlerCtx;
+        internal nint DragDropHandler;
+        internal nint DragDropHandlerCtx;
+    }
+
+    /// <summary>
+    /// Create a window with optional config. config=null uses defaults.
+    /// ownerWindowId and parentWindowId: pass 0 for none; owner takes precedence if both set.
+    /// </summary>
     [LibraryImport(LibName)]
-    internal static partial nuint wry_window_new_with_owner(nint app, nuint ownerWindowId);
+    internal static partial nuint wry_window_create(nint app, nuint ownerWindowId, nuint parentWindowId, nint config);
 
     // -----------------------------------------------------------------------
-    // Navigation & JS interop (pre-run: app + windowId)
+    // Navigation & JS interop (post-run: use *mut WryWindow)
     // -----------------------------------------------------------------------
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_window_load_url(nint app, nuint windowId, string url);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_window_load_html(nint app, nuint windowId, string html);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial void wry_window_eval_js(nint win, string js);
 
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_window_add_init_script(nint app, nuint windowId, string js);
-
     // -----------------------------------------------------------------------
-    // Callback registration (pre-run) — function pointers passed as nint
+    // Protocol response (post-run)
     // -----------------------------------------------------------------------
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_ipc_handler(nint app, nuint windowId, nint callback, nint ctx);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_window_add_custom_protocol(nint app, nuint windowId, string scheme, nint callback, nint ctx);
 
     [LibraryImport(LibName)]
     internal static partial void wry_protocol_respond(nint responder, nint data, int dataLen,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string contentType, int statusCode,
         [MarshalAs(UnmanagedType.LPUTF8Str)] string? extraHeaders);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_on_close(nint app, nuint windowId, nint callback, nint ctx);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_on_resize(nint app, nuint windowId, nint callback, nint ctx);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_on_move(nint app, nuint windowId, nint callback, nint ctx);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_on_focus(nint app, nuint windowId, nint callback, nint ctx);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_on_drag_drop(nint app, nuint windowId, nint callback, nint ctx);
-
-    // -----------------------------------------------------------------------
-    // Navigation & page load handlers (pre-run)
-    // -----------------------------------------------------------------------
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_navigation_handler(nint app, nuint windowId, nint callback, nint ctx);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_page_load_handler(nint app, nuint windowId, nint callback, nint ctx);
 
     // -----------------------------------------------------------------------
     // Evaluate JS with callback (post-run, via WryWindow pointer)
@@ -111,165 +174,11 @@ internal static partial class NativeMethods
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
     internal static partial void wry_window_eval_js_callback(nint win, string js, nint callback, nint ctx);
 
-    // -----------------------------------------------------------------------
-    // Window property setters (pre-run: app + windowId)
-    // -----------------------------------------------------------------------
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_window_set_title(nint app, nuint windowId, string title);
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_icon(nint win, nint rgba, int rgbaLen, int width, int height);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_size(nint app, nuint windowId, int width, int height);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_min_size(nint app, nuint windowId, int width, int height);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_max_size(nint app, nuint windowId, int width, int height);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_position(nint app, nuint windowId, int x, int y);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_resizable(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool resizable);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_fullscreen(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool fullscreen);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_maximized(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool maximized);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_minimized(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool minimized);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_topmost(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool topmost);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_visible(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool visible);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_devtools(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_transparent(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool transparent);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_decorations(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool decorations);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_skip_taskbar(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool skip);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_content_protected(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool contentProtected);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_shadow(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool shadow);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_always_on_bottom(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool alwaysOnBottom);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_maximizable(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool maximizable);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_minimizable(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool minimizable);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_closable(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool closable);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_focusable(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool focusable);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_window_set_window_classname(nint app, nuint windowId, string classname);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_owner_window(nint app, nuint windowId, nuint ownerWindowId);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_parent_window(nint app, nuint windowId, nuint parentWindowId);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_prevent_overflow(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_prevent_overflow_margin(nint app, nuint windowId, int left, int top, int right, int bottom);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_prevent_overflow_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_prevent_overflow_margin_direct(nint win, int left, int top, int right, int bottom);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_window_set_user_agent(nint app, nuint windowId, string userAgent);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_zoom(nint app, nuint windowId, double zoom);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_back_forward_gestures(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_autoplay(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_hotkeys_zoom(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_clipboard(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_accept_first_mouse(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_incognito(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_window_set_data_directory(nint app, nuint windowId, string path);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_icon(nint app, nuint windowId, nint rgba, int rgbaLen, int width, int height);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_icon_direct(nint win, nint rgba, int rgbaLen, int width, int height);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_icon_from_bytes(nint app, nuint windowId, nint data, int dataLen);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_icon_from_bytes_direct(nint win, nint data, int dataLen);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_focused(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool focused);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_javascript_disabled(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool disabled);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_background_color(nint app, nuint windowId, byte r, byte g, byte b, byte a);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_background_throttling(nint app, nuint windowId, int policy);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_theme(nint app, nuint windowId, int theme);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_https_scheme(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_browser_accelerator_keys(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_default_context_menus(nint app, nuint windowId, [MarshalAs(UnmanagedType.U1)] bool enabled);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_set_scroll_bar_style(nint app, nuint windowId, int style);
-
-    [LibraryImport(LibName)]
-    internal static partial void wry_window_center(nint app, nuint windowId);
+    internal static partial void wry_window_set_icon_from_bytes(nint win, nint data, int dataLen);
 
     // -----------------------------------------------------------------------
     // Window close (post-run, via WryWindow pointer)
@@ -316,6 +225,9 @@ internal static partial class NativeMethods
     internal static partial bool wry_window_get_decorated(nint win);
 
     [LibraryImport(LibName)]
+    internal static partial int wry_window_get_theme(nint win);
+
+    [LibraryImport(LibName)]
     internal static partial double wry_window_get_screen_dpi(nint win);
 
     [LibraryImport(LibName)]
@@ -326,73 +238,82 @@ internal static partial class NativeMethods
     // -----------------------------------------------------------------------
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_window_set_title_direct(nint win, string title);
+    internal static partial void wry_window_set_title(nint win, string title);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_window_load_url_direct(nint win, string url);
+    internal static partial void wry_window_load_url(nint win, string url);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial void wry_window_load_html_direct(nint win, string html);
+    internal static partial void wry_window_load_html(nint win, string html);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_size_direct(nint win, int width, int height);
+    internal static partial void wry_window_set_size(nint win, int width, int height);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_position_direct(nint win, int x, int y);
+    internal static partial void wry_window_set_position(nint win, int x, int y);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_decorations_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool decorations);
+    internal static partial void wry_window_set_min_size(nint win, int width, int height);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_skip_taskbar_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool skip);
+    internal static partial void wry_window_set_max_size(nint win, int width, int height);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_content_protected_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool contentProtected);
+    internal static partial void wry_window_set_theme(nint win, int theme);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_shadow_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool shadow);
+    internal static partial void wry_window_set_decorations(nint win, [MarshalAs(UnmanagedType.U1)] bool decorations);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_always_on_bottom_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool alwaysOnBottom);
+    internal static partial void wry_window_set_skip_taskbar(nint win, [MarshalAs(UnmanagedType.U1)] bool skip);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_maximizable_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool maximizable);
+    internal static partial void wry_window_set_content_protected(nint win, [MarshalAs(UnmanagedType.U1)] bool contentProtected);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_minimizable_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool minimizable);
+    internal static partial void wry_window_set_shadow(nint win, [MarshalAs(UnmanagedType.U1)] bool shadow);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_closable_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool closable);
+    internal static partial void wry_window_set_always_on_bottom(nint win, [MarshalAs(UnmanagedType.U1)] bool alwaysOnBottom);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_focusable_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool focusable);
+    internal static partial void wry_window_set_maximizable(nint win, [MarshalAs(UnmanagedType.U1)] bool maximizable);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_zoom_direct(nint win, double zoom);
+    internal static partial void wry_window_set_minimizable(nint win, [MarshalAs(UnmanagedType.U1)] bool minimizable);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_closable(nint win, [MarshalAs(UnmanagedType.U1)] bool closable);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_focusable(nint win, [MarshalAs(UnmanagedType.U1)] bool focusable);
+
+    [LibraryImport(LibName)]
+    internal static partial void wry_window_set_zoom(nint win, double zoom);
 
     [LibraryImport(LibName)]
     internal static partial void wry_window_restore(nint win);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_fullscreen_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool fullscreen);
+    internal static partial void wry_window_set_fullscreen(nint win, [MarshalAs(UnmanagedType.U1)] bool fullscreen);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_maximized_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool maximized);
+    internal static partial void wry_window_set_maximized(nint win, [MarshalAs(UnmanagedType.U1)] bool maximized);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_minimized_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool minimized);
+    internal static partial void wry_window_set_minimized(nint win, [MarshalAs(UnmanagedType.U1)] bool minimized);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_topmost_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool topmost);
+    internal static partial void wry_window_set_topmost(nint win, [MarshalAs(UnmanagedType.U1)] bool topmost);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_visible_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool visible);
+    internal static partial void wry_window_set_visible(nint win, [MarshalAs(UnmanagedType.U1)] bool visible);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_resizable_direct(nint win, [MarshalAs(UnmanagedType.U1)] bool resizable);
+    internal static partial void wry_window_set_resizable(nint win, [MarshalAs(UnmanagedType.U1)] bool resizable);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_center_direct(nint win);
+    internal static partial void wry_window_center(nint win);
 
     [LibraryImport(LibName)]
     internal static partial void wry_window_get_all_monitors(nint win, nint callback, nint ctx);
@@ -417,7 +338,7 @@ internal static partial class NativeMethods
     internal static partial void wry_window_clear_all_browsing_data(nint win);
 
     [LibraryImport(LibName)]
-    internal static partial void wry_window_set_background_color_direct(nint win, byte r, byte g, byte b, byte a);
+    internal static partial void wry_window_set_background_color(nint win, byte r, byte g, byte b, byte a);
 
     [LibraryImport(LibName)]
     internal static partial void wry_window_open_devtools(nint win);

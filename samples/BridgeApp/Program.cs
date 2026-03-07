@@ -27,32 +27,23 @@ namespace SampleApp
             var devUrl = args.FirstOrDefault(a => a.StartsWith("--dev-url="))?.Split('=', 2)[1]
                       ?? Environment.GetEnvironmentVariable("WRY_DEV_URL");
 
-            // Create the Wry.NET application and window
-            using var app = new WryApp();
-            var window = app.CreateWindow();
-
-            window.Title = "Wry.NET Bridge React App";
-            window.Size = (1024, 800);
-            window.Center();
-            window.DefaultContextMenus = false;
-
-            // Set window icon from the shared app.ico
+            // Prepare frontend (URL + protocol if embedded/disk) so we can pass at create time
+            var options = new WryWindowCreateOptions();
+            options.SetFrontend(devUrl: devUrl, assembly: Assembly.GetExecutingAssembly(), loggerFactory: loggerFactory);
+            options.Title = "Wry.NET Bridge React App";
+            options.Width = 1024;
+            options.Height = 800;
+            options.DefaultContextMenus = false;
             var iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
             if (File.Exists(iconPath))
-                window.SetIconFromFile(iconPath);
+                options.IconPath = iconPath;
 
-            // Attach the bridge (registers IPC handler + init script shims)
-            bridge.Attach(window);
+            options.AddBridge(bridge);
+            options.Visible = false; // hidden until first page load finishes to avoid white flash
 
-            // Hide window until first page load finishes to avoid white flash
-            window.Visible = false;
-            window.PageLoad += (_, e) =>
-            {
-                if (e.Event == WryPageLoadEvent.Finished)
-                    window.Visible = true;
-            };
+            using var app = new WryApp();
 
-            // --- Tray icon ---
+            // --- Tray icon (set up before Run so it's ready) ---
             var tray = app.CreateTrayIcon();
             tray.Tooltip = "Wry.NET Bridge App";
 
@@ -68,47 +59,54 @@ namespace SampleApp
             menu.AddItem("quit", "Quit");
             tray.Menu = menu;
 
-            tray.MenuItemClicked += (_, e) =>
+            app.CreateWindow(options: options, onCreated: window =>
             {
-                switch (e.ItemId)
+                window.PageLoad += (_, e) =>
                 {
-                    case "show":
-                        window.Dispatch(w => w.Visible = true);
-                        break;
-                    case "hide":
-                        window.Dispatch(w => w.Visible = false);
-                        break;
-                    case "new_window":
-                        // Dynamic child window: same SPA, route ?window=child. Owner = main (stays on top, closes with main).
-                        // URL and protocol are applied to the queued window (Tauri-style: config at create time).
-                        var child = app.CreateWindow(owner: window);
-                        child.Title = "Child Window (dynamic)";
-                        child.Size = (600, 400);
-                        child.Visible = false;
-                        child.LoadFrontend(
-                            assembly: Assembly.GetExecutingAssembly(),
-                            devUrl: devUrl,
-                            pathFragment: "#/child",
-                            loggerFactory: loggerFactory);
-                        bridge.Attach(child);
-                        child.PageLoad += (_, pe) =>
-                        {
-                            if (pe.Event == WryPageLoadEvent.Finished)
-                                child.Visible = true;
-                        };
-                        break;
-                    case "quit":
-                        foreach (var w in app.Windows)
-                            w.Dispatch(win => win.Close());
-                        break;
-                }
-            };
+                    if (e.Event == WryPageLoadEvent.Finished)
+                        window.Visible = true;
+                };
 
-            // Configure frontend loading for main window: dev server -> embedded assets -> disk fallback
-            window.LoadFrontend(
-                assembly: Assembly.GetExecutingAssembly(),
-                devUrl: devUrl,
-                loggerFactory: loggerFactory);
+                tray.MenuItemClicked += (_, e) =>
+                {
+                    switch (e.ItemId)
+                    {
+                        case "show":
+                            window.Visible = true;
+                            break;
+                        case "hide":
+                            window.Visible = false;
+                            break;
+                        case "new_window":
+                            var childOptions = new WryWindowCreateOptions
+                            {
+                                Title = "Child Window (dynamic)",
+                                Width = 600,
+                                Height = 400,
+                                Visible = false,
+                            };
+                            childOptions.SetFrontend(
+                                devUrl: devUrl,
+                                assembly: Assembly.GetExecutingAssembly(),
+                                pathFragment: "#/child",
+                                loggerFactory: loggerFactory);
+                            childOptions.AddBridge(bridge);
+                            app.CreateWindow(owner: window, options: childOptions, onCreated: child =>
+                            {
+                                child.PageLoad += (_, pe) =>
+                                {
+                                    if (pe.Event == WryPageLoadEvent.Finished)
+                                        child.Visible = true;
+                                };
+                            });
+                            break;
+                        case "quit":
+                            foreach (var w in app.Windows)
+                                w.Close();
+                            break;
+                    }
+                };
+            });
 
             app.Run();
         }

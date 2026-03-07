@@ -12,7 +12,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::ffi::{c_char, c_int, c_void, CStr, CString};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 /// Log a wry Result error to stderr if it failed. Used instead of `let _ =`
 /// so that errors are visible in debug output.
@@ -25,11 +25,11 @@ macro_rules! log_err {
     };
 }
 
-use tao::dpi::{LogicalPosition, LogicalSize, PhysicalPosition};
+use tao::dpi::{LogicalPosition, LogicalSize};
 use tao::event::{Event, StartCause, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoop, EventLoopBuilder, EventLoopProxy, EventLoopWindowTarget};
 use tao::platform::run_return::EventLoopExtRunReturn;
-use tao::window::{Fullscreen, Icon, Window, WindowBuilder as TaoWindowBuilder, WindowId};
+use tao::window::{Fullscreen, Icon, Theme, Window, WindowBuilder as TaoWindowBuilder, WindowId};
 
 use wry::{webview_version, WebContext, WebView, WebViewBuilder};
 
@@ -161,8 +161,11 @@ pub(crate) enum UserEvent {
     RequestExit {
         code: c_int,
     },
-    /// Create one window from the dynamic queue (posted when wry_window_new is called after run started).
-    CreateWindow,
+    /// Create one window from config (posted when wry_window_create is called after run started).
+    CreateWindowWithConfig {
+        id: usize,
+        payload: Box<WindowCreatePayload>,
+    },
 }
 
 // Safety: the ctx pointer is opaque and only dereferenced by the C caller's
@@ -170,164 +173,439 @@ pub(crate) enum UserEvent {
 unsafe impl Send for UserEvent {}
 
 // ---------------------------------------------------------------------------
+// WryWindowConfig -- FFI struct for create-with-config (optional, extend as needed)
+// ---------------------------------------------------------------------------
+
+/// One protocol handler entry for WryWindowConfig. scheme and callback must stay valid for the duration of wry_window_create.
+#[repr(C)]
+pub struct WryProtocolEntry {
+    pub scheme: *const c_char,
+    pub callback: ProtocolHandlerCallback,
+    pub ctx: *mut c_void,
+}
+
+/// C ABI config for window creation. Pass to wry_window_create; null = use defaults.
+/// All string pointers are UTF-8, null = not set / default. protocols may be null if protocol_count is 0.
+#[repr(C)]
+pub struct WryWindowConfig {
+    pub title: *const c_char,
+    pub url: *const c_char,
+    pub html: *const c_char,
+    pub width: c_int,
+    pub height: c_int,
+    pub data_directory: *const c_char,
+    pub protocol_count: c_int,
+    pub protocols: *const WryProtocolEntry,
+    /// 0 = false, non-zero = true. Windows only; ignored on other platforms.
+    pub default_context_menus: c_int,
+    /// Window icon: pointer to image file bytes (PNG, ICO, JPEG, BMP, GIF). null or len 0 = no icon.
+    pub icon_data: *const u8,
+    pub icon_data_len: c_int,
+    /// Init scripts: array of UTF-8 C strings injected before page load. null or count 0 = none.
+    pub init_script_count: c_int,
+    pub init_scripts: *const *const c_char,
+
+    // --- Window properties (all fields present on all platforms; platform-only ones are ignored elsewhere) ---
+    pub min_width: c_int,
+    pub min_height: c_int,
+    pub max_width: c_int,
+    pub max_height: c_int,
+    /// Non-zero = position is set; 0 = use OS default.
+    pub has_position: c_int,
+    pub x: c_int,
+    pub y: c_int,
+    pub resizable: c_int,
+    pub fullscreen: c_int,
+    pub maximized: c_int,
+    pub minimized: c_int,
+    pub topmost: c_int,
+    pub visible: c_int,
+    pub devtools: c_int,
+    pub transparent: c_int,
+    pub decorations: c_int,
+    pub user_agent: *const c_char,
+    pub zoom: f64,
+    pub back_forward_gestures: c_int,
+    pub autoplay: c_int,
+    pub hotkeys_zoom: c_int,
+    pub clipboard: c_int,
+    pub accept_first_mouse: c_int,
+    pub incognito: c_int,
+    pub focused: c_int,
+    pub javascript_disabled: c_int,
+    /// Non-zero = background color is set.
+    pub has_background_color: c_int,
+    pub bg_r: u8,
+    pub bg_g: u8,
+    pub bg_b: u8,
+    pub bg_a: u8,
+    /// Non-zero = background throttling is set.
+    pub has_background_throttling: c_int,
+    pub background_throttling: c_int,
+    /// Windows only. 0 = system default, 1 = light, 2 = dark.
+    pub theme: c_int,
+    /// Windows only.
+    pub https_scheme: c_int,
+    /// Windows only.
+    pub browser_accelerator_keys: c_int,
+    /// Windows only. 0 = default, 1 = fluent overlay, 2 = none.
+    pub scroll_bar_style: c_int,
+    pub skip_taskbar: c_int,
+    pub content_protected: c_int,
+    pub shadow: c_int,
+    pub always_on_bottom: c_int,
+    pub maximizable: c_int,
+    pub minimizable: c_int,
+    pub closable: c_int,
+    pub focusable: c_int,
+    /// Windows only. null = default class name.
+    pub window_classname: *const c_char,
+    /// 0 = no owner.
+    pub owner_window_id: usize,
+    /// 0 = no parent.
+    pub parent_window_id: usize,
+
+    // Event callbacks: function pointer + opaque context. Null function pointer = not set.
+    pub ipc_handler: Option<IpcCallback>,
+    pub ipc_handler_ctx: *mut c_void,
+    pub close_handler: Option<CloseCallback>,
+    pub close_handler_ctx: *mut c_void,
+    pub resize_handler: Option<ResizeCallback>,
+    pub resize_handler_ctx: *mut c_void,
+    pub move_handler: Option<MoveCallback>,
+    pub move_handler_ctx: *mut c_void,
+    pub focus_handler: Option<FocusCallback>,
+    pub focus_handler_ctx: *mut c_void,
+    pub navigation_handler: Option<NavigationCallback>,
+    pub navigation_handler_ctx: *mut c_void,
+    pub page_load_handler: Option<PageLoadCallback>,
+    pub page_load_handler_ctx: *mut c_void,
+    pub drag_drop_handler: Option<DragDropCallback>,
+    pub drag_drop_handler_ctx: *mut c_void,
+}
+
+/// Build a WindowCreatePayload from FFI config. Safe if config is valid; uses defaults for null/zero.
+fn payload_from_config(config: *const WryWindowConfig) -> WindowCreatePayload {
+    let mut payload = WindowCreatePayload::default();
+    if config.is_null() {
+        return payload;
+    }
+    let c = unsafe { &*config };
+    if !c.title.is_null() {
+        payload.title = unsafe { c_str_to_string(c.title) };
+    }
+    if !c.url.is_null() {
+        let s = unsafe { c_str_to_string(c.url) };
+        if !s.is_empty() {
+            payload.url = Some(s);
+            payload.html = None;
+        }
+    }
+    if !c.html.is_null() {
+        let s = unsafe { c_str_to_string(c.html) };
+        if !s.is_empty() {
+            payload.html = Some(s);
+            payload.url = None;
+        }
+    }
+    if c.width > 0 && c.height > 0 {
+        payload.size = (c.width as u32, c.height as u32);
+    }
+    if !c.data_directory.is_null() {
+        let s = unsafe { c_str_to_string(c.data_directory) };
+        if !s.is_empty() {
+            payload.data_directory = Some(s);
+        }
+    }
+    if c.protocol_count > 0 && !c.protocols.is_null() {
+        let slice = unsafe { std::slice::from_raw_parts(c.protocols, c.protocol_count as usize) };
+        for entry in slice {
+            let scheme = unsafe { c_str_to_string(entry.scheme) };
+            if !scheme.is_empty() {
+                payload.protocols.push(PendingProtocol {
+                    scheme,
+                    callback: entry.callback,
+                    ctx: entry.ctx as usize,
+                });
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        payload.default_context_menus = c.default_context_menus != 0;
+    }
+    if !c.icon_data.is_null() && c.icon_data_len > 0 {
+        let bytes = unsafe { std::slice::from_raw_parts(c.icon_data, c.icon_data_len as usize) };
+        payload.icon = decode_icon_from_bytes(bytes);
+    }
+    if c.init_script_count > 0 && !c.init_scripts.is_null() {
+        let ptrs = unsafe { std::slice::from_raw_parts(c.init_scripts, c.init_script_count as usize) };
+        for &ptr in ptrs {
+            if !ptr.is_null() {
+                let s = unsafe { c_str_to_string(ptr) };
+                if !s.is_empty() {
+                    payload.init_scripts.push(s);
+                }
+            }
+        }
+    }
+
+    if c.min_width > 0 && c.min_height > 0 {
+        payload.min_size = Some((c.min_width as u32, c.min_height as u32));
+    }
+    if c.max_width > 0 && c.max_height > 0 {
+        payload.max_size = Some((c.max_width as u32, c.max_height as u32));
+    }
+    if c.has_position != 0 {
+        payload.position = Some((c.x, c.y));
+    }
+    payload.resizable = c.resizable != 0;
+    payload.fullscreen = c.fullscreen != 0;
+    payload.maximized = c.maximized != 0;
+    payload.minimized = c.minimized != 0;
+    payload.topmost = c.topmost != 0;
+    payload.visible = c.visible != 0;
+    payload.devtools = c.devtools != 0;
+    payload.transparent = c.transparent != 0;
+    payload.decorations = c.decorations != 0;
+    if !c.user_agent.is_null() {
+        let s = unsafe { c_str_to_string(c.user_agent) };
+        if !s.is_empty() {
+            payload.user_agent = Some(s);
+        }
+    }
+    if c.zoom > 0.0 {
+        payload.zoom = c.zoom;
+    }
+    payload.back_forward_gestures = c.back_forward_gestures != 0;
+    payload.autoplay = c.autoplay != 0;
+    payload.hotkeys_zoom = c.hotkeys_zoom != 0;
+    payload.clipboard = c.clipboard != 0;
+    payload.accept_first_mouse = c.accept_first_mouse != 0;
+    payload.incognito = c.incognito != 0;
+    payload.focused = c.focused != 0;
+    payload.javascript_disabled = c.javascript_disabled != 0;
+    if c.has_background_color != 0 {
+        payload.background_color = Some((c.bg_r, c.bg_g, c.bg_b, c.bg_a));
+    }
+    if c.has_background_throttling != 0 {
+        payload.background_throttling = Some(c.background_throttling);
+    }
+    #[cfg(target_os = "windows")]
+    {
+        payload.theme = c.theme;
+        payload.https_scheme = c.https_scheme != 0;
+        payload.browser_accelerator_keys = c.browser_accelerator_keys != 0;
+        payload.scroll_bar_style = c.scroll_bar_style;
+    }
+    payload.skip_taskbar = c.skip_taskbar != 0;
+    payload.content_protected = c.content_protected != 0;
+    payload.shadow = c.shadow != 0;
+    payload.always_on_bottom = c.always_on_bottom != 0;
+    payload.maximizable = c.maximizable != 0;
+    payload.minimizable = c.minimizable != 0;
+    payload.closable = c.closable != 0;
+    payload.focusable = c.focusable != 0;
+    #[cfg(target_os = "windows")]
+    if !c.window_classname.is_null() {
+        let s = unsafe { c_str_to_string(c.window_classname) };
+        if !s.is_empty() {
+            payload.window_classname = Some(s);
+        }
+    }
+    if c.owner_window_id != 0 {
+        payload.owner_window_id = Some(c.owner_window_id);
+        payload.parent_window_id = None;
+    } else if c.parent_window_id != 0 {
+        payload.parent_window_id = Some(c.parent_window_id);
+        payload.owner_window_id = None;
+    }
+
+    if let Some(cb) = c.ipc_handler {
+        payload.ipc_handler = Some((cb, c.ipc_handler_ctx as usize));
+    }
+    if let Some(cb) = c.close_handler {
+        payload.close_handler = Some((cb, c.close_handler_ctx as usize));
+    }
+    if let Some(cb) = c.resize_handler {
+        payload.resize_handler = Some((cb, c.resize_handler_ctx as usize));
+    }
+    if let Some(cb) = c.move_handler {
+        payload.move_handler = Some((cb, c.move_handler_ctx as usize));
+    }
+    if let Some(cb) = c.focus_handler {
+        payload.focus_handler = Some((cb, c.focus_handler_ctx as usize));
+    }
+    if let Some(cb) = c.navigation_handler {
+        payload.navigation_handler = Some((cb, c.navigation_handler_ctx as usize));
+    }
+    if let Some(cb) = c.page_load_handler {
+        payload.page_load_handler = Some((cb, c.page_load_handler_ctx as usize));
+    }
+    if let Some(cb) = c.drag_drop_handler {
+        payload.drag_drop_handler = Some((cb, c.drag_drop_handler_ctx as usize));
+    }
+    payload
+}
+
+/// Decode image file bytes (PNG, ICO, JPEG, BMP, GIF) into a window Icon. Used for create-time icon.
+fn decode_icon_from_bytes(data: &[u8]) -> Option<Icon> {
+    use image::GenericImageView;
+    match image::load_from_memory(data) {
+        Ok(img) => {
+            let rgba = img.to_rgba8();
+            let (w, h) = img.dimensions();
+            match Icon::from_rgba(rgba.into_raw(), w, h) {
+                Ok(icon) => Some(icon),
+                Err(e) => {
+                    eprintln!("[wry-native] decode_icon_from_bytes: Icon::from_rgba failed: {}", e);
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("[wry-native] decode_icon_from_bytes: image decode failed: {}", e);
+            None
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Pending protocol registration
 // ---------------------------------------------------------------------------
 
+#[derive(Clone)]
 struct PendingProtocol {
     scheme: String,
     callback: ProtocolHandlerCallback,
     ctx: usize,
 }
 
-// ---------------------------------------------------------------------------
-// WryWindow -- per-window state
-// ---------------------------------------------------------------------------
-
-pub struct WryWindow {
-    id: usize,
-
-    // --- Pending config (set before app_run, consumed when window is created) ---
-    pending_title: String,
-    pending_url: Option<String>,
-    pending_html: Option<String>,
-    pending_size: (u32, u32),
-    pending_min_size: Option<(u32, u32)>,
-    pending_max_size: Option<(u32, u32)>,
-    pending_position: Option<(i32, i32)>,
-    pending_resizable: bool,
-    pending_fullscreen: bool,
-    pending_maximized: bool,
-    pending_minimized: bool,
-    pending_topmost: bool,
-    pending_visible: bool,
-    pending_devtools: bool,
-    pending_transparent: bool,
-    pending_decorations: bool,
-    pending_user_agent: Option<String>,
-    pending_zoom: f64,
-    pending_back_forward_gestures: bool,
-    pending_autoplay: bool,
-    pending_hotkeys_zoom: bool,
-    pending_clipboard: bool,
-    pending_accept_first_mouse: bool,
-    pending_incognito: bool,
-    pending_focused: bool,
-    pending_javascript_disabled: bool,
-    pending_background_color: Option<(u8, u8, u8, u8)>,
-    pending_background_throttling: Option<i32>, // 0=Disabled, 1=Suspend, 2=Throttle
+/// Owned configuration for a window, passed at creation time via wry_window_create.
+/// Can be sent to the event loop for during-run creation.
+#[derive(Clone)]
+pub(crate) struct WindowCreatePayload {
+    pub title: String,
+    pub url: Option<String>,
+    pub html: Option<String>,
+    pub size: (u32, u32),
+    pub min_size: Option<(u32, u32)>,
+    pub max_size: Option<(u32, u32)>,
+    pub position: Option<(i32, i32)>,
+    pub resizable: bool,
+    pub fullscreen: bool,
+    pub maximized: bool,
+    pub minimized: bool,
+    pub topmost: bool,
+    pub visible: bool,
+    pub devtools: bool,
+    pub transparent: bool,
+    pub decorations: bool,
+    pub user_agent: Option<String>,
+    pub zoom: f64,
+    pub back_forward_gestures: bool,
+    pub autoplay: bool,
+    pub hotkeys_zoom: bool,
+    pub clipboard: bool,
+    pub accept_first_mouse: bool,
+    pub incognito: bool,
+    pub focused: bool,
+    pub javascript_disabled: bool,
+    pub background_color: Option<(u8, u8, u8, u8)>,
+    pub background_throttling: Option<i32>,
     #[cfg(target_os = "windows")]
-    pending_theme: i32, // 0=Auto, 1=Dark, 2=Light
+    pub theme: i32,
     #[cfg(target_os = "windows")]
-    pending_https_scheme: bool,
+    pub https_scheme: bool,
     #[cfg(target_os = "windows")]
-    pending_browser_accelerator_keys: bool,
+    pub browser_accelerator_keys: bool,
     #[cfg(target_os = "windows")]
-    pending_default_context_menus: bool,
+    pub default_context_menus: bool,
     #[cfg(target_os = "windows")]
-    pending_scroll_bar_style: i32, // 0=Default, 1=FluentOverlay
-    // Window options (tao) - skip_taskbar, shadow, etc.
-    pending_skip_taskbar: bool,
-    pending_content_protected: bool,
-    pending_shadow: bool,
-    pending_always_on_bottom: bool,
-    pending_maximizable: bool,
-    pending_minimizable: bool,
-    pending_closable: bool,
-    pending_focusable: bool,
+    pub scroll_bar_style: i32,
+    pub skip_taskbar: bool,
+    pub content_protected: bool,
+    pub shadow: bool,
+    pub always_on_bottom: bool,
+    pub maximizable: bool,
+    pub minimizable: bool,
+    pub closable: bool,
+    pub focusable: bool,
     #[cfg(target_os = "windows")]
-    pending_window_classname: Option<String>,
-    /// Owner or parent window id (our usize id). Owner = owned/dialog; parent = child. Only one applied; owner takes precedence.
-    pending_owner_window_id: Option<usize>,
-    pending_parent_window_id: Option<usize>,
-    /// Keep window within current monitor bounds when moved/resized. Margin in physical pixels (left, top, right, bottom).
-    prevent_overflow: bool,
-    prevent_overflow_margin: (i32, i32, i32, i32), // left, top, right, bottom
-    pending_init_scripts: Vec<String>,
-    pending_protocols: Vec<PendingProtocol>,
-    pending_data_directory: Option<String>,
-    pending_icon: Option<Icon>,
-
-    // --- Callbacks ---
-    ipc_handler: Option<(IpcCallback, usize)>,
-    close_handler: Option<(CloseCallback, usize)>,
-    resize_handler: Option<(ResizeCallback, usize)>,
-    move_handler: Option<(MoveCallback, usize)>,
-    focus_handler: Option<(FocusCallback, usize)>,
-    navigation_handler: Option<(NavigationCallback, usize)>,
-    page_load_handler: Option<(PageLoadCallback, usize)>,
-    drag_drop_handler: Option<(DragDropCallback, usize)>,
-
-    // --- Live objects (populated during app_run) ---
-    window: Option<Window>,
-    webview: Option<WebView>,
-    web_context: Option<WebContext>,
-    window_id: Option<WindowId>,
+    pub window_classname: Option<String>,
+    pub owner_window_id: Option<usize>,
+    pub parent_window_id: Option<usize>,
+    pub init_scripts: Vec<String>,
+    pub protocols: Vec<PendingProtocol>,
+    pub data_directory: Option<String>,
+    pub icon: Option<Icon>,
+    pub ipc_handler: Option<(IpcCallback, usize)>,
+    pub close_handler: Option<(CloseCallback, usize)>,
+    pub resize_handler: Option<(ResizeCallback, usize)>,
+    pub move_handler: Option<(MoveCallback, usize)>,
+    pub focus_handler: Option<(FocusCallback, usize)>,
+    pub navigation_handler: Option<(NavigationCallback, usize)>,
+    pub page_load_handler: Option<(PageLoadCallback, usize)>,
+    pub drag_drop_handler: Option<(DragDropCallback, usize)>,
 }
 
-// Safety: WryWindow is only sent to the main thread when it is pending (window and webview are None).
-// We only push to dynamic_window_queue before create() is called.
-unsafe impl Send for WryWindow {}
-
-impl WryWindow {
-    fn new(id: usize) -> Self {
+impl Default for WindowCreatePayload {
+    fn default() -> Self {
         Self {
-            id,
-            pending_title: String::new(),
-            pending_url: None,
-            pending_html: None,
-            pending_size: (800, 600),
-            pending_min_size: None,
-            pending_max_size: None,
-            pending_position: None,
-            pending_resizable: true,
-            pending_fullscreen: false,
-            pending_maximized: false,
-            pending_minimized: false,
-            pending_topmost: false,
-            pending_visible: true,
-            pending_devtools: false,
-            pending_transparent: false,
-            pending_decorations: true,
-            pending_user_agent: None,
-            pending_zoom: 1.0,
-            pending_back_forward_gestures: false,
-            pending_autoplay: false,
-            pending_hotkeys_zoom: true,
-            pending_clipboard: false,
-            pending_accept_first_mouse: false,
-            pending_incognito: false,
-            pending_focused: true,
-            pending_javascript_disabled: false,
-            pending_background_color: None,
-            pending_background_throttling: None,
+            title: String::new(),
+            url: None,
+            html: None,
+            size: (800, 600),
+            min_size: None,
+            max_size: None,
+            position: None,
+            resizable: true,
+            fullscreen: false,
+            maximized: false,
+            minimized: false,
+            topmost: false,
+            visible: true,
+            devtools: false,
+            transparent: false,
+            decorations: true,
+            user_agent: None,
+            zoom: 1.0,
+            back_forward_gestures: false,
+            autoplay: false,
+            hotkeys_zoom: true,
+            clipboard: false,
+            accept_first_mouse: false,
+            incognito: false,
+            focused: true,
+            javascript_disabled: false,
+            background_color: None,
+            background_throttling: None,
             #[cfg(target_os = "windows")]
-            pending_theme: 0,
+            theme: 0,
             #[cfg(target_os = "windows")]
-            pending_https_scheme: false,
+            https_scheme: false,
             #[cfg(target_os = "windows")]
-            pending_browser_accelerator_keys: true,
+            browser_accelerator_keys: true,
             #[cfg(target_os = "windows")]
-            pending_default_context_menus: true,
+            default_context_menus: true,
             #[cfg(target_os = "windows")]
-            pending_scroll_bar_style: 0,
-            pending_skip_taskbar: false,
-            pending_content_protected: false,
-            pending_shadow: true,
-            pending_always_on_bottom: false,
-            pending_maximizable: true,
-            pending_minimizable: true,
-            pending_closable: true,
-            pending_focusable: true,
+            scroll_bar_style: 0,
+            skip_taskbar: false,
+            content_protected: false,
+            shadow: true,
+            always_on_bottom: false,
+            maximizable: true,
+            minimizable: true,
+            closable: true,
+            focusable: true,
             #[cfg(target_os = "windows")]
-            pending_window_classname: None,
-            pending_owner_window_id: None,
-            pending_parent_window_id: None,
-            prevent_overflow: false,
-            prevent_overflow_margin: (0, 0, 0, 0),
-            pending_init_scripts: Vec::new(),
-            pending_protocols: Vec::new(),
-            pending_data_directory: None,
-            pending_icon: None,
+            window_classname: None,
+            owner_window_id: None,
+            parent_window_id: None,
+            init_scripts: Vec::new(),
+            protocols: Vec::new(),
+            data_directory: None,
+            icon: None,
             ipc_handler: None,
             close_handler: None,
             resize_handler: None,
@@ -336,6 +614,44 @@ impl WryWindow {
             navigation_handler: None,
             page_load_handler: None,
             drag_drop_handler: None,
+        }
+    }
+}
+
+unsafe impl Send for WindowCreatePayload {}
+
+// ---------------------------------------------------------------------------
+// WryWindow -- per-window state
+// ---------------------------------------------------------------------------
+
+pub struct WryWindow {
+    id: usize,
+
+    // Runtime event callbacks (read during event loop, copied from payload in create())
+    close_handler: Option<(CloseCallback, usize)>,
+    resize_handler: Option<(ResizeCallback, usize)>,
+    move_handler: Option<(MoveCallback, usize)>,
+    focus_handler: Option<(FocusCallback, usize)>,
+
+    // --- Live objects (populated during create()) ---
+    window: Option<Window>,
+    webview: Option<WebView>,
+    web_context: Option<WebContext>,
+    window_id: Option<WindowId>,
+}
+
+// Safety: WryWindow is only sent to the main thread when it is pending (window and webview are None).
+// WryWindow is only sent to the main thread when pending (window and webview are None).
+unsafe impl Send for WryWindow {}
+
+impl WryWindow {
+    fn new(id: usize) -> Self {
+        Self {
+            id,
+            close_handler: None,
+            resize_handler: None,
+            move_handler: None,
+            focus_handler: None,
             window: None,
             webview: None,
             web_context: None,
@@ -343,35 +659,36 @@ impl WryWindow {
         }
     }
 
-    /// Materialize the tao Window + wry WebView from pending config.
+    /// Materialize the tao Window + wry WebView from a creation payload.
     /// owner_window / parent_window: resolved parent tao Window; owner takes precedence if both set.
     fn create(
         &mut self,
+        payload: &WindowCreatePayload,
         event_loop: &EventLoopWindowTarget<UserEvent>,
         owner_window: Option<&Window>,
         parent_window: Option<&Window>,
     ) -> Result<(), String> {
-        let (w, h) = self.pending_size;
+        let (w, h) = payload.size;
         let mut wb = TaoWindowBuilder::new()
-            .with_title(&self.pending_title)
+            .with_title(&payload.title)
             .with_inner_size(LogicalSize::new(w, h))
-            .with_resizable(self.pending_resizable)
-            .with_always_on_top(self.pending_topmost)
-            .with_visible(self.pending_visible)
-            .with_maximized(self.pending_maximized)
-            .with_decorations(self.pending_decorations)
-            .with_content_protection(self.pending_content_protected)
-            .with_always_on_bottom(self.pending_always_on_bottom)
-            .with_maximizable(self.pending_maximizable)
-            .with_minimizable(self.pending_minimizable)
-            .with_closable(self.pending_closable)
-            .with_focusable(self.pending_focusable);
+            .with_resizable(payload.resizable)
+            .with_always_on_top(payload.topmost)
+            .with_visible(payload.visible)
+            .with_maximized(payload.maximized)
+            .with_decorations(payload.decorations)
+            .with_content_protection(payload.content_protected)
+            .with_always_on_bottom(payload.always_on_bottom)
+            .with_maximizable(payload.maximizable)
+            .with_minimizable(payload.minimizable)
+            .with_closable(payload.closable)
+            .with_focusable(payload.focusable);
 
         #[cfg(target_os = "windows")]
         {
-            wb = wb.with_skip_taskbar(self.pending_skip_taskbar);
-            wb = wb.with_undecorated_shadow(self.pending_shadow);
-            if let Some(ref class_name) = self.pending_window_classname {
+            wb = wb.with_skip_taskbar(payload.skip_taskbar);
+            wb = wb.with_undecorated_shadow(payload.shadow);
+            if let Some(ref class_name) = payload.window_classname {
                 if !class_name.is_empty() {
                     wb = wb.with_window_classname(class_name);
                 }
@@ -383,24 +700,24 @@ impl WryWindow {
             #[cfg(target_os = "linux")]
             {
                 use tao::platform::unix::WindowBuilderExtUnix;
-                wb = wb.with_skip_taskbar(self.pending_skip_taskbar);
+                wb = wb.with_skip_taskbar(payload.skip_taskbar);
             }
         }
 
-        if let Some((min_w, min_h)) = self.pending_min_size {
+        if let Some((min_w, min_h)) = payload.min_size {
             wb = wb.with_min_inner_size(LogicalSize::new(min_w, min_h));
         }
-        if let Some((max_w, max_h)) = self.pending_max_size {
+        if let Some((max_w, max_h)) = payload.max_size {
             wb = wb.with_max_inner_size(LogicalSize::new(max_w, max_h));
         }
-        if let Some((x, y)) = self.pending_position {
+        if let Some((x, y)) = payload.position {
             wb = wb.with_position(LogicalPosition::new(x, y));
         }
-        if self.pending_fullscreen {
+        if payload.fullscreen {
             wb = wb.with_fullscreen(Some(Fullscreen::Borderless(None)));
         }
-        if let Some(icon) = self.pending_icon.take() {
-            wb = wb.with_window_icon(Some(icon));
+        if let Some(ref icon) = payload.icon {
+            wb = wb.with_window_icon(Some(icon.clone()));
         }
 
         // Owner/parent: Windows = owner_window vs parent_window (HWND); macOS = parent (ns_window); Linux = transient_for (gtk).
@@ -431,8 +748,7 @@ impl WryWindow {
 
         let window = wb.build(event_loop).map_err(|e| e.to_string())?;
 
-        // Build webview -- optionally with a WebContext for data directory
-        if let Some(ref dir) = self.pending_data_directory {
+        if let Some(ref dir) = payload.data_directory {
             self.web_context = Some(WebContext::new(Some(std::path::PathBuf::from(dir))));
         }
 
@@ -442,50 +758,43 @@ impl WryWindow {
             WebViewBuilder::new()
         };
 
-        // URL or HTML
-        if let Some(ref url) = self.pending_url {
+        if let Some(ref url) = payload.url {
             wvb = wvb.with_url(url);
-        } else if let Some(ref html) = self.pending_html {
+        } else if let Some(ref html) = payload.html {
             wvb = wvb.with_html(html);
         }
 
-        // User agent
-        if let Some(ref ua) = self.pending_user_agent {
+        if let Some(ref ua) = payload.user_agent {
             wvb = wvb.with_user_agent(ua);
         }
 
-        // Transparent
-        if self.pending_transparent {
+        if payload.transparent {
             wvb = wvb.with_transparent(true);
         }
 
-        // Background color
-        if let Some((r, g, b, a)) = self.pending_background_color {
+        if let Some((r, g, b, a)) = payload.background_color {
             wvb = wvb.with_background_color((r, g, b, a));
         }
 
-        // Devtools
         #[cfg(any(debug_assertions, feature = "devtools"))]
         {
-            wvb = wvb.with_devtools(self.pending_devtools);
+            wvb = wvb.with_devtools(payload.devtools);
         }
-        let _ = self.pending_devtools; // suppress unused warning in release
+        let _ = payload.devtools;
 
-        // Simple bool builder flags
-        wvb = wvb.with_back_forward_navigation_gestures(self.pending_back_forward_gestures);
-        wvb = wvb.with_autoplay(self.pending_autoplay);
-        wvb = wvb.with_hotkeys_zoom(self.pending_hotkeys_zoom);
-        wvb = wvb.with_clipboard(self.pending_clipboard);
-        wvb = wvb.with_accept_first_mouse(self.pending_accept_first_mouse);
-        wvb = wvb.with_incognito(self.pending_incognito);
-        wvb = wvb.with_focused(self.pending_focused);
+        wvb = wvb.with_back_forward_navigation_gestures(payload.back_forward_gestures);
+        wvb = wvb.with_autoplay(payload.autoplay);
+        wvb = wvb.with_hotkeys_zoom(payload.hotkeys_zoom);
+        wvb = wvb.with_clipboard(payload.clipboard);
+        wvb = wvb.with_accept_first_mouse(payload.accept_first_mouse);
+        wvb = wvb.with_incognito(payload.incognito);
+        wvb = wvb.with_focused(payload.focused);
 
-        if self.pending_javascript_disabled {
+        if payload.javascript_disabled {
             wvb = wvb.with_javascript_disabled();
         }
 
-        // Background throttling
-        if let Some(policy) = self.pending_background_throttling {
+        if let Some(policy) = payload.background_throttling {
             use wry::BackgroundThrottlingPolicy;
             let p = match policy {
                 0 => BackgroundThrottlingPolicy::Disabled,
@@ -500,29 +809,28 @@ impl WryWindow {
         #[cfg(target_os = "windows")]
         {
             use wry::{Theme, ScrollBarStyle};
-            let theme = match self.pending_theme {
+            let theme = match payload.theme {
                 1 => Theme::Dark,
                 2 => Theme::Light,
                 _ => Theme::Auto,
             };
             wvb = wvb.with_theme(theme);
-            wvb = wvb.with_https_scheme(self.pending_https_scheme);
-            wvb = wvb.with_browser_accelerator_keys(self.pending_browser_accelerator_keys);
-            wvb = wvb.with_default_context_menus(self.pending_default_context_menus);
-            let style = match self.pending_scroll_bar_style {
+            wvb = wvb.with_https_scheme(payload.https_scheme);
+            wvb = wvb.with_browser_accelerator_keys(payload.browser_accelerator_keys);
+            wvb = wvb.with_default_context_menus(payload.default_context_menus);
+            let style = match payload.scroll_bar_style {
                 1 => ScrollBarStyle::FluentOverlay,
                 _ => ScrollBarStyle::Default,
             };
             wvb = wvb.with_scroll_bar_style(style);
         }
 
-        // Init scripts
-        for script in &self.pending_init_scripts {
+        for script in &payload.init_scripts {
             wvb = wvb.with_initialization_script(script);
         }
 
-        // IPC handler
-        if let Some((cb, ctx)) = self.ipc_handler {
+        // IPC handler (from payload - baked into webview at creation)
+        if let Some((cb, ctx)) = payload.ipc_handler {
             wvb = wvb.with_ipc_handler(move |req| {
                 let url = req.uri().to_string();
                 let body = req.body();
@@ -532,8 +840,8 @@ impl WryWindow {
             });
         }
 
-        // Navigation handler
-        if let Some((cb, ctx)) = self.navigation_handler {
+        // Navigation handler (from payload - baked into webview at creation)
+        if let Some((cb, ctx)) = payload.navigation_handler {
             wvb = wvb.with_navigation_handler(move |url| {
                 if let Ok(c_url) = CString::new(url.as_str()) {
                     cb(c_url.as_ptr(), ctx as *mut c_void)
@@ -543,8 +851,8 @@ impl WryWindow {
             });
         }
 
-        // Page load handler
-        if let Some((cb, ctx)) = self.page_load_handler {
+        // Page load handler (from payload - baked into webview at creation)
+        if let Some((cb, ctx)) = payload.page_load_handler {
             use wry::PageLoadEvent;
             wvb = wvb.with_on_page_load_handler(move |event, url| {
                 let event_code: c_int = match event {
@@ -557,8 +865,8 @@ impl WryWindow {
             });
         }
 
-        // Drag-drop handler
-        if let Some((cb, ctx)) = self.drag_drop_handler {
+        // Drag-drop handler (from payload - baked into webview at creation)
+        if let Some((cb, ctx)) = payload.drag_drop_handler {
             use wry::DragDropEvent;
             wvb = wvb.with_drag_drop_handler(move |event| {
                 let (event_type, paths_ref, x, y): (c_int, Option<&Vec<std::path::PathBuf>>, i32, i32) =
@@ -591,11 +899,10 @@ impl WryWindow {
             });
         }
 
-        // Custom protocols
-        for proto in self.pending_protocols.drain(..) {
+        for proto in &payload.protocols {
             let cb = proto.callback;
             let ctx = proto.ctx;
-            wvb = wvb.with_asynchronous_custom_protocol(proto.scheme, move |_id, request, responder| {
+            wvb = wvb.with_asynchronous_custom_protocol(proto.scheme.clone(), move |_id, request, responder| {
                 // Pack the responder into a heap-allocated box so C can hold it
                 let responder_box = Box::new(responder);
                 let responder_ptr = Box::into_raw(responder_box) as *mut c_void;
@@ -641,16 +948,19 @@ impl WryWindow {
             .map_err(|e| e.to_string())?;
 
         // Apply zoom if not default
-        if (self.pending_zoom - 1.0).abs() > f64::EPSILON {
-            log_err!(webview.zoom(self.pending_zoom), "zoom (init)");
+        if (payload.zoom - 1.0).abs() > f64::EPSILON {
+            log_err!(webview.zoom(payload.zoom), "zoom (init)");
         }
 
         self.window_id = Some(window.id());
         self.window = Some(window);
         self.webview = Some(webview);
+        self.close_handler = payload.close_handler;
+        self.resize_handler = payload.resize_handler;
+        self.move_handler = payload.move_handler;
+        self.focus_handler = payload.focus_handler;
 
-        // Apply post-creation state
-        if self.pending_minimized {
+        if payload.minimized {
             if let Some(ref w) = self.window {
                 w.set_minimized(true);
             }
@@ -667,14 +977,13 @@ pub struct WryApp {
     event_loop: Option<EventLoop<UserEvent>>,
     pub(crate) proxy: EventLoopProxy<UserEvent>,
     windows: HashMap<usize, WryWindow>,
+    payloads: HashMap<usize, WindowCreatePayload>,
     next_window_id: usize,
     pub(crate) trays: HashMap<usize, WryTray>,
     pub(crate) next_tray_id: usize,
     exit_requested_handler: Option<(ExitRequestedCallback, usize)>,
     /// Set to true when the event loop is running (inside run_return). Used to decide initial vs dynamic window creation.
     run_started: Arc<AtomicBool>,
-    /// Windows created via wry_window_new after run started; processed on main thread.
-    dynamic_window_queue: Arc<Mutex<Vec<WryWindow>>>,
     /// Called when a window is materialized and live (initial or dynamic).
     window_created_handler: Option<(WindowCreatedCallback, usize)>,
     /// Called when dynamic window creation fails (async path only).
@@ -688,55 +997,6 @@ pub struct WryApp {
 // only accesses the proxy.
 unsafe impl Send for WryApp {}
 unsafe impl Sync for WryApp {}
-
-// ---------------------------------------------------------------------------
-// prevent_overflow: clamp window to current monitor bounds
-// ---------------------------------------------------------------------------
-
-/// Pure clamp: returns (new_x, new_y) so a window of size (win_w, win_h) with top-left (win_x, win_y)
-/// stays within the rectangle [left, right] x [top, bottom]. Bounds are inclusive for the top-left;
-/// the window's right edge is at win_x + win_w, bottom at win_y + win_h.
-fn clamp_window_position_to_bounds(
-    left: i32,
-    top: i32,
-    right: i32,
-    bottom: i32,
-    win_x: i32,
-    win_y: i32,
-    win_w: i32,
-    win_h: i32,
-) -> (i32, i32) {
-    let max_x = (right - win_w).max(left);
-    let max_y = (bottom - win_h).max(top);
-    let new_x = win_x.clamp(left, max_x);
-    let new_y = win_y.clamp(top, max_y);
-    (new_x, new_y)
-}
-
-fn apply_prevent_overflow(window: &Window, margin: (i32, i32, i32, i32)) {
-    let Some(monitor) = window.current_monitor() else { return };
-    let mon_pos = monitor.position();
-    let mon_size = monitor.size();
-    let (ml, mt, mr, mb) = margin;
-    let left = mon_pos.x + ml;
-    let top = mon_pos.y + mt;
-    let right = mon_pos.x + mon_size.width as i32 - mr;
-    let bottom = mon_pos.y + mon_size.height as i32 - mb;
-
-    let Ok(pos) = window.outer_position() else { return };
-    let size = window.outer_size();
-    let w = size.width as i32;
-    let h = size.height as i32;
-
-    let (new_x, new_y) = clamp_window_position_to_bounds(
-        left, top, right, bottom,
-        pos.x, pos.y, w, h,
-    );
-
-    if new_x != pos.x || new_y != pos.y {
-        window.set_outer_position(PhysicalPosition::new(new_x, new_y));
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Helper: read a C string into a Rust String, returning empty on null.
@@ -770,12 +1030,12 @@ pub extern "C" fn wry_app_new() -> *mut WryApp {
         event_loop: Some(event_loop),
         proxy,
         windows: HashMap::new(),
+        payloads: HashMap::new(),
         next_window_id: 1,
         trays: HashMap::new(),
         next_tray_id: 1,
         exit_requested_handler: None,
         run_started: Arc::new(AtomicBool::new(false)),
-        dynamic_window_queue: Arc::new(Mutex::new(Vec::new())),
         window_created_handler: None,
         window_creation_error_handler: None,
         window_destroyed_handler: None,
@@ -797,11 +1057,9 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
         None => return, // already consumed
     };
 
-    // Move windows out of the app struct so they can be owned by the closure.
-    // We use a separate map keyed by tao WindowId for event dispatch.
     let mut pending_windows: Vec<WryWindow> = app.windows.drain().map(|(_, w)| w).collect();
+    let mut pending_payloads: HashMap<usize, WindowCreatePayload> = app.payloads.drain().collect();
     let mut live_windows: HashMap<WindowId, WryWindow> = HashMap::new();
-    // Also keep a map from our usize id -> WindowId for dispatch lookups.
     let mut id_to_window_id: HashMap<usize, WindowId> = HashMap::new();
 
     // Move trays out of the app struct.
@@ -817,7 +1075,6 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
     let window_destroyed_handler = app.window_destroyed_handler.take();
 
     let run_started = app.run_started.clone();
-    let dynamic_window_queue = app.dynamic_window_queue.clone();
 
     // Wire up tray icon / menu event handlers to forward into the event loop.
     tray::setup_tray_event_handlers(&app.proxy);
@@ -829,18 +1086,21 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
 
         match event {
             Event::NewEvents(StartCause::Init) => {
-                // Materialize all pending windows. Sort by id so owner/parent windows are created first.
                 pending_windows.sort_by_key(|w| w.id);
                 for mut win in pending_windows.drain(..) {
-                    let owner_window = win.pending_owner_window_id.and_then(|oid| {
+                    let payload = match pending_payloads.remove(&win.id) {
+                        Some(p) => p,
+                        None => continue,
+                    };
+                    let owner_window = payload.owner_window_id.and_then(|oid| {
                         id_to_window_id.get(&oid).and_then(|tid| live_windows.get(tid))
                             .and_then(|w| w.window.as_ref())
                     });
-                    let parent_window = win.pending_parent_window_id.and_then(|pid| {
+                    let parent_window = payload.parent_window_id.and_then(|pid| {
                         id_to_window_id.get(&pid).and_then(|tid| live_windows.get(tid))
                             .and_then(|w| w.window.as_ref())
                     });
-                    match win.create(event_loop_target, owner_window, parent_window) {
+                    match win.create(&payload, event_loop_target, owner_window, parent_window) {
                         Ok(()) => {
                             if let Some(wid) = win.window_id {
                                 let our_id = win.id;
@@ -927,11 +1187,6 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                             }
                         }
                         WindowEvent::Resized(size) => {
-                            if win.prevent_overflow {
-                                if let Some(ref w) = win.window {
-                                    apply_prevent_overflow(w, win.prevent_overflow_margin);
-                                }
-                            }
                             if let Some((cb, ctx)) = win.resize_handler {
                                 cb(
                                     size.width as c_int,
@@ -941,11 +1196,6 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                             }
                         }
                         WindowEvent::Moved(pos) => {
-                            if win.prevent_overflow {
-                                if let Some(ref w) = win.window {
-                                    apply_prevent_overflow(w, win.prevent_overflow_margin);
-                                }
-                            }
                             if let Some((cb, ctx)) = win.move_handler {
                                 cb(pos.x as c_int, pos.y as c_int, ctx as *mut c_void);
                             }
@@ -1036,35 +1286,35 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                     }
                 }
 
-                UserEvent::CreateWindow => {
-                    if let Some(mut win) = dynamic_window_queue.lock().ok().and_then(|mut q| q.pop()) {
-                        let owner_window = win.pending_owner_window_id.and_then(|oid| {
-                            id_to_window_id.get(&oid).and_then(|tid| live_windows.get(tid))
-                                .and_then(|w| w.window.as_ref())
-                        });
-                        let parent_window = win.pending_parent_window_id.and_then(|pid| {
-                            id_to_window_id.get(&pid).and_then(|tid| live_windows.get(tid))
-                                .and_then(|w| w.window.as_ref())
-                        });
-                        match win.create(event_loop_target, owner_window, parent_window) {
-                            Ok(()) => {
-                                if let Some(wid) = win.window_id {
-                                    let our_id = win.id;
-                                    id_to_window_id.insert(our_id, wid);
-                                    live_windows.insert(wid, win);
-                                    if let Some((cb, ctx)) = window_created_handler.as_ref() {
-                                        if let Some(win_ref) = live_windows.get_mut(&wid) {
-                                            cb(*ctx as *mut c_void, our_id, win_ref as *mut WryWindow);
-                                        }
+                UserEvent::CreateWindowWithConfig {
+                    id: our_id,
+                    payload,
+                } => {
+                    let owner_window = payload.owner_window_id.and_then(|oid| {
+                        id_to_window_id.get(&oid).and_then(|tid| live_windows.get(tid))
+                            .and_then(|w| w.window.as_ref())
+                    });
+                    let parent_window = payload.parent_window_id.and_then(|pid| {
+                        id_to_window_id.get(&pid).and_then(|tid| live_windows.get(tid))
+                            .and_then(|w| w.window.as_ref())
+                    });
+                    let mut win = WryWindow::new(our_id);
+                    match win.create(&payload, event_loop_target, owner_window, parent_window) {
+                        Ok(()) => {
+                            if let Some(wid) = win.window_id {
+                                id_to_window_id.insert(our_id, wid);
+                                live_windows.insert(wid, win);
+                                if let Some((cb, ctx)) = window_created_handler.as_ref() {
+                                    if let Some(win_ref) = live_windows.get_mut(&wid) {
+                                        cb(*ctx as *mut c_void, our_id, win_ref as *mut WryWindow);
                                     }
                                 }
                             }
-                            Err(e) => {
-                                let our_id = win.id;
-                                if let Some((cb, ctx)) = window_creation_error_handler.as_ref() {
-                                    if let Ok(c_msg) = CString::new(e.as_str()) {
-                                        cb(*ctx as *mut c_void, our_id, c_msg.as_ptr());
-                                    }
+                        }
+                        Err(e) => {
+                            if let Some((cb, ctx)) = window_creation_error_handler.as_ref() {
+                                if let Ok(c_msg) = CString::new(e.as_str()) {
+                                    cb(*ctx as *mut c_void, our_id, c_msg.as_ptr());
                                 }
                             }
                         }
@@ -1158,130 +1408,57 @@ pub extern "C" fn wry_app_destroy(app: *mut WryApp) {
 // Window creation
 // ---------------------------------------------------------------------------
 
-/// Create a new window handle. Before run: window is stored and created when the event loop starts.
-/// After run: the window is queued and materialized on the next event loop tick so the caller can configure it first (URL, protocol, IPC).
-/// Returns an opaque window ID (never 0 on success).
+/// Create a window with optional config. Pass 0 for owner/parent for top-level.
+/// config: null = default params; or pointer to WryWindowConfig for title, url, size, etc.
+/// Before run: window is stored in app.windows. After run: posts CreateWindowWithConfig (no queue).
+/// Returns window ID (never 0 on success).
 #[no_mangle]
-pub extern "C" fn wry_window_new(app: *mut WryApp) -> usize {
-    wry_window_new_with_owner(app, 0)
-}
-
-/// Like `wry_window_new`, but the new window is created as owned by `owner_window_id`.
-/// Pass 0 for no owner. Owner must be an existing window id (e.g. the main window).
-#[no_mangle]
-pub extern "C" fn wry_window_new_with_owner(app: *mut WryApp, owner_window_id: usize) -> usize {
+pub extern "C" fn wry_window_create(
+    app: *mut WryApp,
+    owner_window_id: usize,
+    parent_window_id: usize,
+    config: *const c_void,
+) -> usize {
     if app.is_null() {
         return 0;
     }
     let app = unsafe { &mut *app };
     let id = app.next_window_id;
     app.next_window_id += 1;
-    let mut win = WryWindow::new(id);
+
+    let mut payload = if config.is_null() {
+        WindowCreatePayload::default()
+    } else {
+        payload_from_config(config as *const WryWindowConfig)
+    };
     if owner_window_id != 0 {
-        win.pending_owner_window_id = Some(owner_window_id);
-        win.pending_parent_window_id = None;
+        payload.owner_window_id = Some(owner_window_id);
+        payload.parent_window_id = None;
+    } else if parent_window_id != 0 {
+        payload.parent_window_id = Some(parent_window_id);
+        payload.owner_window_id = None;
     }
 
     if !app.run_started.load(Ordering::SeqCst) {
+        let win = WryWindow::new(id);
         app.windows.insert(id, win);
+        app.payloads.insert(id, payload);
         return id;
     }
 
-    // Run started: always queue so C# can configure (URL, protocol, IPC) before the window is materialized.
-    // Otherwise on the main thread we would create synchronously and LoadFrontend would find no queued window.
-    if let Ok(mut q) = app.dynamic_window_queue.lock() {
-        q.push(win);
-        drop(q);
-        let _ = app.proxy.send_event(UserEvent::CreateWindow);
-    }
+    let _ = app.proxy.send_event(UserEvent::CreateWindowWithConfig {
+        id,
+        payload: Box::new(payload),
+    });
     id
 }
 
 // ---------------------------------------------------------------------------
-// Helpers: look up a WryWindow by ID from the app (pre-run only).
-// During run, the windows are moved into the event loop closure, so callers
-// from callbacks receive a *mut WryWindow directly.
+// JavaScript evaluation (post-run: use *mut WryWindow)
 // ---------------------------------------------------------------------------
 
-/// Get a mutable reference to a window by ID from the app.
-/// Only valid before `wry_app_run()`. Returns null if not found.
-fn get_pending_window(app: *mut WryApp, window_id: usize) -> Option<&'static mut WryWindow> {
-    if app.is_null() {
-        return None;
-    }
-    let app = unsafe { &mut *app };
-    app.windows.get_mut(&window_id).map(|w| {
-        // Safety: the pointer is valid for the lifetime of the app, and we're
-        // single-threaded before run(). We use 'static as a convenience -- the
-        // actual lifetime is bounded by app_run consuming the windows.
-        unsafe { &mut *(w as *mut WryWindow) }
-    })
-}
-
-/// Apply a function to a window in the dynamic creation queue (if present).
-/// Allows URL, protocol, etc. to be set on a window created via wry_window_new
-/// before it is materialized, matching Tauri's "URL at build time" model.
-fn with_queued_window(app: *mut WryApp, window_id: usize, f: impl FnOnce(&mut WryWindow)) {
-    if app.is_null() {
-        return;
-    }
-    let app = unsafe { &mut *app };
-    if let Ok(mut q) = app.dynamic_window_queue.lock() {
-        if let Some(win) = q.iter_mut().find(|w| w.id == window_id) {
-            f(win);
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Navigation & JS interop (pre-run: via app+id, post-run: via *mut WryWindow)
-// ---------------------------------------------------------------------------
-
-/// Set the URL to load. Call before `wry_app_run()` or for a queued dynamic window before it is materialized.
-#[no_mangle]
-pub extern "C" fn wry_window_load_url(app: *mut WryApp, window_id: usize, url: *const c_char) {
-    let url = unsafe { c_str_to_string(url) };
-    if let Some(win) = get_pending_window(app, window_id) {
-        if win.webview.is_some() {
-            if let Some(ref wv) = win.webview {
-                log_err!(wv.load_url(&url), "load_url");
-            }
-        } else {
-            win.pending_url = Some(url);
-            win.pending_html = None;
-        }
-    } else {
-        with_queued_window(app, window_id, |win| {
-            win.pending_url = Some(url);
-            win.pending_html = None;
-        });
-    }
-}
-
-/// Set HTML content to load. Call before `wry_app_run()` or for a queued dynamic window.
-#[no_mangle]
-pub extern "C" fn wry_window_load_html(app: *mut WryApp, window_id: usize, html: *const c_char) {
-    let html = unsafe { c_str_to_string(html) };
-    if let Some(win) = get_pending_window(app, window_id) {
-        if win.webview.is_some() {
-            if let Some(ref wv) = win.webview {
-                log_err!(wv.load_html(&html), "load_html");
-            }
-        } else {
-            win.pending_html = Some(html);
-            win.pending_url = None;
-        }
-    } else {
-        with_queued_window(app, window_id, |win| {
-            win.pending_html = Some(html);
-            win.pending_url = None;
-        });
-    }
-}
-
-/// Evaluate JavaScript in the webview. When called before `wry_app_run()`, the
-/// script is queued as an init script. When called from a callback (post-run),
-/// pass the `*mut WryWindow` pointer directly.
+/// Evaluate JavaScript in the webview. Must be called post-run (from a callback
+/// or dispatch) with the `*mut WryWindow` pointer.
 #[no_mangle]
 pub extern "C" fn wry_window_eval_js(win: *mut WryWindow, js: *const c_char) {
     if win.is_null() || js.is_null() {
@@ -1323,77 +1500,6 @@ pub extern "C" fn wry_window_eval_js_callback(
                 }
             };
         }), "evaluate_script_with_callback");
-    }
-}
-
-/// Add an initialization script that runs before page load.
-/// Must be called before `wry_app_run()` or for a queued dynamic window.
-#[no_mangle]
-pub extern "C" fn wry_window_add_init_script(
-    app: *mut WryApp,
-    window_id: usize,
-    js: *const c_char,
-) {
-    let js = unsafe { c_str_to_string(js) };
-    if js.is_empty() {
-        return;
-    }
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_init_scripts.push(js);
-    } else {
-        with_queued_window(app, window_id, |win| {
-            win.pending_init_scripts.push(js);
-        });
-    }
-}
-
-/// Set the IPC message handler. Must be called before `wry_app_run()`.
-/// The callback receives the message body and the origin URL as UTF-8 strings.
-#[no_mangle]
-pub extern "C" fn wry_window_set_ipc_handler(
-    app: *mut WryApp,
-    window_id: usize,
-    callback: IpcCallback,
-    ctx: *mut c_void,
-) {
-    let pair = (callback, ctx as usize);
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.ipc_handler = Some(pair);
-    } else {
-        with_queued_window(app, window_id, |win| {
-            win.ipc_handler = Some(pair);
-        });
-    }
-}
-
-/// Register a custom protocol handler. Must be called before `wry_app_run()` or for a queued dynamic window.
-///
-/// When the webview navigates to `{scheme}://...`, the callback is invoked with
-/// the full URL and a responder handle. The callback MUST call
-/// `wry_protocol_respond()` with the responder to deliver the response.
-#[no_mangle]
-pub extern "C" fn wry_window_add_custom_protocol(
-    app: *mut WryApp,
-    window_id: usize,
-    scheme: *const c_char,
-    callback: ProtocolHandlerCallback,
-    ctx: *mut c_void,
-) {
-    let scheme = unsafe { c_str_to_string(scheme) };
-    if scheme.is_empty() {
-        return;
-    }
-    let proto = PendingProtocol {
-        scheme,
-        callback,
-        ctx: ctx as usize,
-    };
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_protocols.push(proto);
-    } else {
-        with_queued_window(app, window_id, |win| {
-            win.pending_protocols.push(proto);
-        });
     }
 }
 
@@ -1468,941 +1574,8 @@ pub extern "C" fn wry_protocol_respond(
 }
 
 // ---------------------------------------------------------------------------
-// Window property setters (pre-run via app+id)
+// Window close (post-run: use *mut WryWindow)
 // ---------------------------------------------------------------------------
-
-#[no_mangle]
-pub extern "C" fn wry_window_set_title(
-    app: *mut WryApp,
-    window_id: usize,
-    title: *const c_char,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        let title = unsafe { c_str_to_string(title) };
-        if let Some(ref w) = win.window {
-            w.set_title(&title);
-        }
-        win.pending_title = title;
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn wry_window_set_size(
-    app: *mut WryApp,
-    window_id: usize,
-    width: c_int,
-    height: c_int,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        let w = width.max(1) as u32;
-        let h = height.max(1) as u32;
-        if let Some(ref window) = win.window {
-            window.set_inner_size(LogicalSize::new(w, h));
-        }
-        win.pending_size = (w, h);
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn wry_window_set_min_size(
-    app: *mut WryApp,
-    window_id: usize,
-    width: c_int,
-    height: c_int,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        let w = width.max(0) as u32;
-        let h = height.max(0) as u32;
-        if w == 0 && h == 0 {
-            win.pending_min_size = None;
-            if let Some(ref window) = win.window {
-                window.set_min_inner_size::<LogicalSize<u32>>(None);
-            }
-        } else {
-            win.pending_min_size = Some((w, h));
-            if let Some(ref window) = win.window {
-                window.set_min_inner_size(Some(LogicalSize::new(w, h)));
-            }
-        }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn wry_window_set_max_size(
-    app: *mut WryApp,
-    window_id: usize,
-    width: c_int,
-    height: c_int,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        let w = width.max(0) as u32;
-        let h = height.max(0) as u32;
-        if w == 0 && h == 0 {
-            win.pending_max_size = None;
-            if let Some(ref window) = win.window {
-                window.set_max_inner_size::<LogicalSize<u32>>(None);
-            }
-        } else {
-            win.pending_max_size = Some((w, h));
-            if let Some(ref window) = win.window {
-                window.set_max_inner_size(Some(LogicalSize::new(w, h)));
-            }
-        }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn wry_window_set_position(
-    app: *mut WryApp,
-    window_id: usize,
-    x: c_int,
-    y: c_int,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            w.set_outer_position(LogicalPosition::new(x, y));
-        }
-        win.pending_position = Some((x, y));
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn wry_window_set_resizable(
-    app: *mut WryApp,
-    window_id: usize,
-    resizable: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            w.set_resizable(resizable);
-        }
-        win.pending_resizable = resizable;
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn wry_window_set_fullscreen(
-    app: *mut WryApp,
-    window_id: usize,
-    fullscreen: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            if fullscreen {
-                w.set_fullscreen(Some(Fullscreen::Borderless(None)));
-            } else {
-                w.set_fullscreen(None);
-            }
-        }
-        win.pending_fullscreen = fullscreen;
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn wry_window_set_maximized(
-    app: *mut WryApp,
-    window_id: usize,
-    maximized: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            w.set_maximized(maximized);
-        }
-        win.pending_maximized = maximized;
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn wry_window_set_minimized(
-    app: *mut WryApp,
-    window_id: usize,
-    minimized: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            w.set_minimized(minimized);
-        }
-        win.pending_minimized = minimized;
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn wry_window_set_topmost(
-    app: *mut WryApp,
-    window_id: usize,
-    topmost: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            w.set_always_on_top(topmost);
-        }
-        win.pending_topmost = topmost;
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn wry_window_set_visible(
-    app: *mut WryApp,
-    window_id: usize,
-    visible: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            w.set_visible(visible);
-        }
-        win.pending_visible = visible;
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn wry_window_set_devtools(
-    app: *mut WryApp,
-    window_id: usize,
-    enabled: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_devtools = enabled;
-        // If already created, open/close devtools
-        #[cfg(any(debug_assertions, feature = "devtools"))]
-        if let Some(ref _wv) = win.webview {
-            if enabled {
-                _wv.open_devtools();
-            } else {
-                _wv.close_devtools();
-            }
-        }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn wry_window_set_transparent(
-    app: *mut WryApp,
-    window_id: usize,
-    transparent: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        // Transparency must be set before webview creation
-        win.pending_transparent = transparent;
-    }
-}
-
-/// Set whether the window has decorations (title bar, borders).
-/// `false` creates a "chromeless" window.
-#[no_mangle]
-pub extern "C" fn wry_window_set_decorations(
-    app: *mut WryApp,
-    window_id: usize,
-    decorations: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            w.set_decorations(decorations);
-        }
-        win.pending_decorations = decorations;
-    }
-}
-
-/// Set whether the window is hidden from the taskbar. Platform: Windows, Linux.
-#[no_mangle]
-pub extern "C" fn wry_window_set_skip_taskbar(
-    app: *mut WryApp,
-    window_id: usize,
-    skip: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        #[cfg(any(target_os = "windows", target_os = "linux"))]
-        if let Some(ref w) = win.window {
-            #[cfg(target_os = "windows")]
-            {
-                use tao::platform::windows::WindowExtWindows;
-                let _ = w.set_skip_taskbar(skip);
-            }
-            #[cfg(target_os = "linux")]
-            {
-                use tao::platform::unix::WindowExtUnix;
-                let _ = w.set_skip_taskbar(skip);
-            }
-        }
-        win.pending_skip_taskbar = skip;
-    }
-}
-
-/// Set whether window content is protected from capture (e.g. screen capture). Platform: Windows, macOS.
-#[no_mangle]
-pub extern "C" fn wry_window_set_content_protected(
-    app: *mut WryApp,
-    window_id: usize,
-    protected: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            w.set_content_protection(protected);
-        }
-        win.pending_content_protected = protected;
-    }
-}
-
-/// Set whether the window has a drop shadow (e.g. undecorated). Platform: Windows.
-#[no_mangle]
-pub extern "C" fn wry_window_set_shadow(
-    app: *mut WryApp,
-    window_id: usize,
-    shadow: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        #[cfg(target_os = "windows")]
-        if let Some(ref w) = win.window {
-            use tao::platform::windows::WindowExtWindows;
-            w.set_undecorated_shadow(shadow);
-        }
-        win.pending_shadow = shadow;
-    }
-}
-
-/// Set whether the window is always below other windows.
-#[no_mangle]
-pub extern "C" fn wry_window_set_always_on_bottom(
-    app: *mut WryApp,
-    window_id: usize,
-    always_on_bottom: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            w.set_always_on_bottom(always_on_bottom);
-        }
-        win.pending_always_on_bottom = always_on_bottom;
-    }
-}
-
-/// Set whether the window can be maximized.
-#[no_mangle]
-pub extern "C" fn wry_window_set_maximizable(
-    app: *mut WryApp,
-    window_id: usize,
-    maximizable: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            w.set_maximizable(maximizable);
-        }
-        win.pending_maximizable = maximizable;
-    }
-}
-
-/// Set whether the window can be minimized.
-#[no_mangle]
-pub extern "C" fn wry_window_set_minimizable(
-    app: *mut WryApp,
-    window_id: usize,
-    minimizable: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            w.set_minimizable(minimizable);
-        }
-        win.pending_minimizable = minimizable;
-    }
-}
-
-/// Set whether the window can be closed (e.g. close button).
-#[no_mangle]
-pub extern "C" fn wry_window_set_closable(
-    app: *mut WryApp,
-    window_id: usize,
-    closable: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            w.set_closable(closable);
-        }
-        win.pending_closable = closable;
-    }
-}
-
-/// Set whether the window can receive keyboard focus.
-#[no_mangle]
-pub extern "C" fn wry_window_set_focusable(
-    app: *mut WryApp,
-    window_id: usize,
-    focusable: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            w.set_focusable(focusable);
-        }
-        win.pending_focusable = focusable;
-    }
-}
-
-/// Set custom window class name. Platform: Windows. Builder-only (no runtime change).
-#[no_mangle]
-pub extern "C" fn wry_window_set_window_classname(
-    app: *mut WryApp,
-    window_id: usize,
-    classname: *const c_char,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        #[cfg(target_os = "windows")]
-        {
-            let s = unsafe { c_str_to_string(classname) };
-            win.pending_window_classname = if s.is_empty() { None } else { Some(s) };
-        }
-    }
-}
-
-/// Set the owner window (owned window, e.g. dialog). Use 0 to clear. Builder-only. Win: owned window; macOS/Linux: parent/transient.
-/// The owner window must be created before this window (lower window id). Only one of owner or parent may be set; owner takes precedence.
-#[no_mangle]
-pub extern "C" fn wry_window_set_owner_window(
-    app: *mut WryApp,
-    window_id: usize,
-    owner_window_id: usize,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_owner_window_id = if owner_window_id == 0 { None } else { Some(owner_window_id) };
-        if owner_window_id != 0 {
-            win.pending_parent_window_id = None;
-        }
-    }
-}
-
-/// Set the parent window (child window on Win/macOS; transient on Linux). Use 0 to clear. Builder-only.
-/// The parent window must be created before this window (lower window id). Only one of owner or parent may be set.
-#[no_mangle]
-pub extern "C" fn wry_window_set_parent_window(
-    app: *mut WryApp,
-    window_id: usize,
-    parent_window_id: usize,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_parent_window_id = if parent_window_id == 0 { None } else { Some(parent_window_id) };
-        if parent_window_id != 0 {
-            win.pending_owner_window_id = None;
-        }
-    }
-}
-
-/// Enable or disable prevent_overflow (keep window within current monitor when moved/resized).
-#[no_mangle]
-pub extern "C" fn wry_window_set_prevent_overflow(
-    app: *mut WryApp,
-    window_id: usize,
-    enabled: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.prevent_overflow = enabled;
-    }
-}
-
-/// Set prevent_overflow margin in physical pixels (left, top, right, bottom). Use 0 for all to have no margin.
-#[no_mangle]
-pub extern "C" fn wry_window_set_prevent_overflow_margin(
-    app: *mut WryApp,
-    window_id: usize,
-    left: c_int,
-    top: c_int,
-    right: c_int,
-    bottom: c_int,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.prevent_overflow_margin = (left, top, right, bottom);
-    }
-}
-
-/// Set prevent_overflow from a callback (live window). Call from dispatch.
-#[no_mangle]
-pub extern "C" fn wry_window_set_prevent_overflow_direct(win: *mut WryWindow, enabled: bool) {
-    if win.is_null() {
-        return;
-    }
-    let win = unsafe { &mut *win };
-    win.prevent_overflow = enabled;
-}
-
-/// Set prevent_overflow margin from a callback (live window). Call from dispatch.
-#[no_mangle]
-pub extern "C" fn wry_window_set_prevent_overflow_margin_direct(
-    win: *mut WryWindow,
-    left: c_int,
-    top: c_int,
-    right: c_int,
-    bottom: c_int,
-) {
-    if win.is_null() {
-        return;
-    }
-    let win = unsafe { &mut *win };
-    win.prevent_overflow_margin = (left, top, right, bottom);
-}
-
-/// Set a custom user agent string for the webview.
-/// Must be called before `wry_app_run()` (cannot be changed at runtime).
-#[no_mangle]
-pub extern "C" fn wry_window_set_user_agent(
-    app: *mut WryApp,
-    window_id: usize,
-    user_agent: *const c_char,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        let ua = unsafe { c_str_to_string(user_agent) };
-        if ua.is_empty() {
-            win.pending_user_agent = None;
-        } else {
-            win.pending_user_agent = Some(ua);
-        }
-    }
-}
-
-/// Set the webview zoom level. 1.0 = 100%, 2.0 = 200%, etc.
-/// Before `wry_app_run()`, sets the initial zoom. From callbacks, use
-/// `wry_window_set_zoom_direct`.
-#[no_mangle]
-pub extern "C" fn wry_window_set_zoom(
-    app: *mut WryApp,
-    window_id: usize,
-    zoom: f64,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        let z = if zoom > 0.0 { zoom } else { 1.0 };
-        if let Some(ref wv) = win.webview {
-            log_err!(wv.zoom(z), "zoom (pre-run)");
-        }
-        win.pending_zoom = z;
-    }
-}
-
-/// Enable/disable backward and forward navigation gestures (horizontal swipe).
-/// Must be called before `wry_app_run()`.
-///
-/// Platform: Android / iOS unsupported.
-#[no_mangle]
-pub extern "C" fn wry_window_set_back_forward_gestures(
-    app: *mut WryApp,
-    window_id: usize,
-    enabled: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_back_forward_gestures = enabled;
-    }
-}
-
-/// Enable/disable autoplay of all media without user interaction.
-/// Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_set_autoplay(
-    app: *mut WryApp,
-    window_id: usize,
-    enabled: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_autoplay = enabled;
-    }
-}
-
-/// Enable/disable page zooming via hotkeys or gestures.
-/// Must be called before `wry_app_run()`. Default is true.
-///
-/// Platform: macOS / Linux / Android / iOS unsupported.
-#[no_mangle]
-pub extern "C" fn wry_window_set_hotkeys_zoom(
-    app: *mut WryApp,
-    window_id: usize,
-    enabled: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_hotkeys_zoom = enabled;
-    }
-}
-
-/// Enable/disable clipboard access for the page (Linux and Windows).
-/// macOS is always enabled.
-/// Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_set_clipboard(
-    app: *mut WryApp,
-    window_id: usize,
-    enabled: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_clipboard = enabled;
-    }
-}
-
-/// Set whether clicking an inactive window also clicks through to the webview.
-/// Must be called before `wry_app_run()`. Default is false.
-///
-/// Platform: macOS only.
-#[no_mangle]
-pub extern "C" fn wry_window_set_accept_first_mouse(
-    app: *mut WryApp,
-    window_id: usize,
-    enabled: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_accept_first_mouse = enabled;
-    }
-}
-
-/// Enable/disable incognito (private browsing) mode.
-/// Must be called before `wry_app_run()`.
-///
-/// Platform: Android unsupported.
-#[no_mangle]
-pub extern "C" fn wry_window_set_incognito(
-    app: *mut WryApp,
-    window_id: usize,
-    enabled: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_incognito = enabled;
-    }
-}
-
-/// Set the data directory for the webview's user data (cache, cookies, etc.).
-/// Must be called before `wry_app_run()`.
-///
-/// If not set, the data directory defaults to the directory of the executable,
-/// which is inappropriate for installed apps (e.g. Program Files).
-/// Recommended: pass a path under `%LOCALAPPDATA%/<AppName>`.
-///
-/// Platform: Windows (WebView2 user data folder). On macOS/Linux this is
-/// handled by the underlying WebContext.
-#[no_mangle]
-pub extern "C" fn wry_window_set_data_directory(
-    app: *mut WryApp,
-    window_id: usize,
-    path: *const c_char,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if !path.is_null() {
-            let s = unsafe { CStr::from_ptr(path) }.to_string_lossy().into_owned();
-            win.pending_data_directory = Some(s);
-        }
-    }
-}
-
-/// Set the window icon from RGBA pixel data.
-/// Must be called before `wry_app_run()` for the initial icon.
-///
-/// - `rgba`: pointer to RGBA pixel data (4 bytes per pixel, row-major)
-/// - `rgba_len`: length of the data in bytes (must equal width * height * 4)
-/// - `width`: icon width in pixels
-/// - `height`: icon height in pixels
-///
-/// Platform: Windows and Linux only. macOS uses the .app bundle icon.
-#[no_mangle]
-pub extern "C" fn wry_window_set_icon(
-    app: *mut WryApp,
-    window_id: usize,
-    rgba: *const u8,
-    rgba_len: c_int,
-    width: c_int,
-    height: c_int,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if rgba.is_null() || rgba_len <= 0 || width <= 0 || height <= 0 {
-            win.pending_icon = None;
-            return;
-        }
-        let data = unsafe { std::slice::from_raw_parts(rgba, rgba_len as usize) }.to_vec();
-        match Icon::from_rgba(data, width as u32, height as u32) {
-            Ok(icon) => {
-                win.pending_icon = Some(icon);
-            }
-            Err(e) => {
-                eprintln!("[wry-native] set_icon failed: {}", e);
-            }
-        }
-    }
-}
-
-/// Set the window icon from RGBA pixel data at runtime.
-/// Call from a callback or dispatch with the WryWindow pointer.
-///
-/// Platform: Windows and Linux only. macOS uses the .app bundle icon.
-#[no_mangle]
-pub extern "C" fn wry_window_set_icon_direct(
-    win: *mut WryWindow,
-    rgba: *const u8,
-    rgba_len: c_int,
-    width: c_int,
-    height: c_int,
-) {
-    if win.is_null() {
-        return;
-    }
-    let win = unsafe { &mut *win };
-    if rgba.is_null() || rgba_len <= 0 || width <= 0 || height <= 0 {
-        if let Some(ref w) = win.window {
-            w.set_window_icon(None);
-        }
-        return;
-    }
-    let data = unsafe { std::slice::from_raw_parts(rgba, rgba_len as usize) }.to_vec();
-    match Icon::from_rgba(data, width as u32, height as u32) {
-        Ok(icon) => {
-            if let Some(ref w) = win.window {
-                w.set_window_icon(Some(icon));
-            }
-        }
-        Err(e) => {
-            eprintln!("[wry-native] set_icon_direct failed: {}", e);
-        }
-    }
-}
-
-/// Helper: decode image file bytes (PNG, ICO, JPEG, BMP, GIF) into an RGBA Icon.
-fn decode_icon_from_bytes(data: &[u8]) -> Option<Icon> {
-    use image::GenericImageView;
-    match image::load_from_memory(data) {
-        Ok(img) => {
-            let rgba = img.to_rgba8();
-            let (w, h) = img.dimensions();
-            match Icon::from_rgba(rgba.into_raw(), w, h) {
-                Ok(icon) => Some(icon),
-                Err(e) => {
-                    eprintln!("[wry-native] Icon::from_rgba failed: {}", e);
-                    None
-                }
-            }
-        }
-        Err(e) => {
-            eprintln!("[wry-native] image decode failed: {}", e);
-            None
-        }
-    }
-}
-
-/// Set the window icon from encoded image file bytes (PNG, ICO, JPEG, BMP, GIF).
-/// The image is decoded on the Rust side — no image library needed in the caller.
-/// Must be called before `wry_app_run()`.
-///
-/// - `data`: pointer to the image file bytes (e.g. contents of a .png file)
-/// - `data_len`: length of the data in bytes
-///
-/// Platform: Windows and Linux only. macOS uses the .app bundle icon.
-#[no_mangle]
-pub extern "C" fn wry_window_set_icon_from_bytes(
-    app: *mut WryApp,
-    window_id: usize,
-    data: *const u8,
-    data_len: c_int,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if data.is_null() || data_len <= 0 {
-            win.pending_icon = None;
-            return;
-        }
-        let bytes = unsafe { std::slice::from_raw_parts(data, data_len as usize) };
-        win.pending_icon = decode_icon_from_bytes(bytes);
-    }
-}
-
-/// Set the window icon from encoded image file bytes at runtime.
-/// Call from a callback or dispatch with the WryWindow pointer.
-///
-/// Platform: Windows and Linux only. macOS uses the .app bundle icon.
-#[no_mangle]
-pub extern "C" fn wry_window_set_icon_from_bytes_direct(
-    win: *mut WryWindow,
-    data: *const u8,
-    data_len: c_int,
-) {
-    if win.is_null() {
-        return;
-    }
-    let win = unsafe { &mut *win };
-    if data.is_null() || data_len <= 0 {
-        if let Some(ref w) = win.window {
-            w.set_window_icon(None);
-        }
-        return;
-    }
-    let bytes = unsafe { std::slice::from_raw_parts(data, data_len as usize) };
-    if let Some(icon) = decode_icon_from_bytes(bytes) {
-        if let Some(ref w) = win.window {
-            w.set_window_icon(Some(icon));
-        }
-    }
-}
-
-/// Set whether the webview should be focused when created.
-/// Must be called before `wry_app_run()`. Default is true.
-///
-/// Platform: macOS / Android / iOS unsupported.
-#[no_mangle]
-pub extern "C" fn wry_window_set_focused(
-    app: *mut WryApp,
-    window_id: usize,
-    focused: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_focused = focused;
-    }
-}
-
-/// Disable JavaScript in the webview.
-/// Must be called before `wry_app_run()`. Default is false (JS enabled).
-#[no_mangle]
-pub extern "C" fn wry_window_set_javascript_disabled(
-    app: *mut WryApp,
-    window_id: usize,
-    disabled: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_javascript_disabled = disabled;
-    }
-}
-
-/// Set the webview background color (RGBA, 0-255 each).
-/// Ignored if transparent is set to true.
-/// Must be called before `wry_app_run()` for initial value.
-///
-/// Platform: macOS not implemented.
-/// Windows 7: alpha ignored; Windows 8+: translucent not supported, alpha is 0 or 255.
-#[no_mangle]
-pub extern "C" fn wry_window_set_background_color(
-    app: *mut WryApp,
-    window_id: usize,
-    r: u8,
-    g: u8,
-    b: u8,
-    a: u8,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_background_color = Some((r, g, b, a));
-    }
-}
-
-/// Set background throttling policy. Must be called before `wry_app_run()`.
-/// Values: 0 = Disabled, 1 = Suspend (default browser behavior), 2 = Throttle.
-///
-/// Platform: Linux / Windows / Android unsupported. macOS 14+, iOS 17+.
-#[no_mangle]
-pub extern "C" fn wry_window_set_background_throttling(
-    app: *mut WryApp,
-    window_id: usize,
-    policy: c_int,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.pending_background_throttling = Some(policy);
-    }
-}
-
-/// Set the webview theme (Windows only).
-/// Values: 0 = Auto (follow OS), 1 = Dark, 2 = Light.
-/// Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_set_theme(
-    app: *mut WryApp,
-    window_id: usize,
-    theme: c_int,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        #[cfg(target_os = "windows")]
-        {
-            win.pending_theme = theme;
-        }
-        let _ = (win, theme); // suppress unused warnings on non-Windows
-    }
-}
-
-/// Set whether custom protocols use https:// scheme (Windows only).
-/// Default is false (uses http://).
-/// Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_set_https_scheme(
-    app: *mut WryApp,
-    window_id: usize,
-    enabled: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        #[cfg(target_os = "windows")]
-        {
-            win.pending_https_scheme = enabled;
-        }
-        let _ = (win, enabled);
-    }
-}
-
-/// Enable/disable browser-specific accelerator keys (Windows only).
-/// Default is true. Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_set_browser_accelerator_keys(
-    app: *mut WryApp,
-    window_id: usize,
-    enabled: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        #[cfg(target_os = "windows")]
-        {
-            win.pending_browser_accelerator_keys = enabled;
-        }
-        let _ = (win, enabled);
-    }
-}
-
-/// Enable/disable default context menus in the webview (Windows only).
-/// Default is true. Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_set_default_context_menus(
-    app: *mut WryApp,
-    window_id: usize,
-    enabled: bool,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        #[cfg(target_os = "windows")]
-        {
-            win.pending_default_context_menus = enabled;
-        }
-        let _ = (win, enabled);
-    }
-}
-
-/// Set the scrollbar style (Windows only).
-/// Values: 0 = Default, 1 = FluentOverlay.
-/// Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_set_scroll_bar_style(
-    app: *mut WryApp,
-    window_id: usize,
-    style: c_int,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        #[cfg(target_os = "windows")]
-        {
-            win.pending_scroll_bar_style = style;
-        }
-        let _ = (win, style);
-    }
-}
-
-/// Center the window on the primary monitor. If the window is not yet created,
-/// this sets the position to center based on the pending size (applied at
-/// creation time using a best-effort calculation).
-#[no_mangle]
-pub extern "C" fn wry_window_center(app: *mut WryApp, window_id: usize) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        if let Some(ref w) = win.window {
-            // Center on current monitor
-            if let Some(monitor) = w.current_monitor() {
-                let screen_size = monitor.size();
-                let window_size = w.outer_size();
-                let x =
-                    (screen_size.width as i32 - window_size.width as i32) / 2;
-                let y =
-                    (screen_size.height as i32 - window_size.height as i32) / 2;
-                w.set_outer_position(tao::dpi::PhysicalPosition::new(
-                    x.max(0),
-                    y.max(0),
-                ));
-            }
-        } else {
-            // Will center when created; set a sentinel
-            win.pending_position = None; // let tao choose default (centered-ish)
-        }
-    }
-}
 
 /// Request the window to close. If a close callback is set, it will be invoked
 /// first. This must be called from the main thread or via dispatch.
@@ -2442,13 +1615,6 @@ pub extern "C" fn wry_window_get_size(
         if !height.is_null() {
             unsafe { *height = logical.height };
         }
-    } else {
-        if !width.is_null() {
-            unsafe { *width = win.pending_size.0 as c_int };
-        }
-        if !height.is_null() {
-            unsafe { *height = win.pending_size.1 as c_int };
-        }
     }
 }
 
@@ -2473,14 +1639,6 @@ pub extern "C" fn wry_window_get_position(
         if !y.is_null() {
             unsafe { *y = logical.y };
         }
-    } else {
-        let (px, py) = win.pending_position.unwrap_or((0, 0));
-        if !x.is_null() {
-            unsafe { *x = px };
-        }
-        if !y.is_null() {
-            unsafe { *y = py };
-        }
     }
 }
 
@@ -2495,7 +1653,7 @@ pub extern "C" fn wry_window_get_title(win: *mut WryWindow) -> *mut c_char {
     let title = if let Some(ref w) = win.window {
         w.title()
     } else {
-        win.pending_title.clone()
+        String::new()
     };
     CString::new(title)
         .map(|cs| cs.into_raw())
@@ -2522,7 +1680,7 @@ pub extern "C" fn wry_window_get_resizable(win: *mut WryWindow) -> bool {
     if let Some(ref w) = win.window {
         w.is_resizable()
     } else {
-        win.pending_resizable
+        false
     }
 }
 
@@ -2536,7 +1694,7 @@ pub extern "C" fn wry_window_get_fullscreen(win: *mut WryWindow) -> bool {
     if let Some(ref w) = win.window {
         w.fullscreen().is_some()
     } else {
-        win.pending_fullscreen
+        false
     }
 }
 
@@ -2550,7 +1708,7 @@ pub extern "C" fn wry_window_get_maximized(win: *mut WryWindow) -> bool {
     if let Some(ref w) = win.window {
         w.is_maximized()
     } else {
-        win.pending_maximized
+        false
     }
 }
 
@@ -2564,7 +1722,7 @@ pub extern "C" fn wry_window_get_minimized(win: *mut WryWindow) -> bool {
     if let Some(ref w) = win.window {
         w.is_minimized()
     } else {
-        win.pending_minimized
+        false
     }
 }
 
@@ -2578,7 +1736,7 @@ pub extern "C" fn wry_window_get_visible(win: *mut WryWindow) -> bool {
     if let Some(ref w) = win.window {
         w.is_visible()
     } else {
-        win.pending_visible
+        false
     }
 }
 
@@ -2592,7 +1750,26 @@ pub extern "C" fn wry_window_get_decorated(win: *mut WryWindow) -> bool {
     if let Some(ref w) = win.window {
         w.is_decorated()
     } else {
-        win.pending_decorations
+        true
+    }
+}
+
+/// Get current window theme. Returns 0 = auto/unknown, 1 = dark, 2 = light.
+/// Call from a callback with the WryWindow pointer.
+#[no_mangle]
+pub extern "C" fn wry_window_get_theme(win: *mut WryWindow) -> c_int {
+    if win.is_null() {
+        return 0;
+    }
+    let win = unsafe { &*win };
+    if let Some(ref w) = win.window {
+        match w.theme() {
+            Theme::Dark => 1,
+            Theme::Light => 2,
+            _ => 0,
+        }
+    } else {
+        0
     }
 }
 
@@ -2627,12 +1804,6 @@ pub extern "C" fn wry_window_get_url(win: *mut WryWindow) -> *mut c_char {
                 .unwrap_or(std::ptr::null_mut());
         }
     }
-    // Before creation, return the pending URL if set
-    if let Some(ref url) = win.pending_url {
-        return CString::new(url.as_str())
-            .map(|cs| cs.into_raw())
-            .unwrap_or(std::ptr::null_mut());
-    }
     std::ptr::null_mut()
 }
 
@@ -2642,7 +1813,7 @@ pub extern "C" fn wry_window_get_url(win: *mut WryWindow) -> *mut c_char {
 
 /// Set the window title. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_title_direct(win: *mut WryWindow, title: *const c_char) {
+pub extern "C" fn wry_window_set_title(win: *mut WryWindow, title: *const c_char) {
     if win.is_null() {
         return;
     }
@@ -2651,38 +1822,37 @@ pub extern "C" fn wry_window_set_title_direct(win: *mut WryWindow, title: *const
     if let Some(ref w) = win.window {
         w.set_title(&title);
     }
-    win.pending_title = title;
 }
 
 /// Navigate to a URL. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_load_url_direct(win: *mut WryWindow, url: *const c_char) {
+pub extern "C" fn wry_window_load_url(win: *mut WryWindow, url: *const c_char) {
     if win.is_null() {
         return;
     }
     let win = unsafe { &mut *win };
     let url = unsafe { c_str_to_string(url) };
     if let Some(ref wv) = win.webview {
-        log_err!(wv.load_url(&url), "load_url_direct");
+        log_err!(wv.load_url(&url), "load_url");
     }
 }
 
 /// Load HTML content. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_load_html_direct(win: *mut WryWindow, html: *const c_char) {
+pub extern "C" fn wry_window_load_html(win: *mut WryWindow, html: *const c_char) {
     if win.is_null() {
         return;
     }
     let win = unsafe { &mut *win };
     let html = unsafe { c_str_to_string(html) };
     if let Some(ref wv) = win.webview {
-        log_err!(wv.load_html(&html), "load_html_direct");
+        log_err!(wv.load_html(&html), "load_html");
     }
 }
 
 /// Set window size. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_size_direct(
+pub extern "C" fn wry_window_set_size(
     win: *mut WryWindow,
     width: c_int,
     height: c_int,
@@ -2700,7 +1870,7 @@ pub extern "C" fn wry_window_set_size_direct(
 
 /// Set window position. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_position_direct(
+pub extern "C" fn wry_window_set_position(
     win: *mut WryWindow,
     x: c_int,
     y: c_int,
@@ -2714,9 +1884,62 @@ pub extern "C" fn wry_window_set_position_direct(
     }
 }
 
+/// Set minimum window inner size. Pass width 0 or height 0 to clear the constraint.
+/// Call from a callback with the WryWindow pointer.
+#[no_mangle]
+pub extern "C" fn wry_window_set_min_size(win: *mut WryWindow, width: c_int, height: c_int) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &*win };
+    if let Some(ref window) = win.window {
+        if width <= 0 || height <= 0 {
+            window.set_min_inner_size::<LogicalSize<u32>>(None);
+        } else {
+            window.set_min_inner_size(Some(LogicalSize::new(width as u32, height as u32)));
+        }
+    }
+}
+
+/// Set maximum window inner size. Pass width 0 or height 0 to clear the constraint.
+/// Call from a callback with the WryWindow pointer.
+#[no_mangle]
+pub extern "C" fn wry_window_set_max_size(win: *mut WryWindow, width: c_int, height: c_int) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &*win };
+    if let Some(ref window) = win.window {
+        if width <= 0 || height <= 0 {
+            window.set_max_inner_size::<LogicalSize<u32>>(None);
+        } else {
+            window.set_max_inner_size(Some(LogicalSize::new(width as u32, height as u32)));
+        }
+    }
+}
+
+/// Set window theme. theme: 0 = auto/system, 1 = dark, 2 = light.
+/// Call from a callback with the WryWindow pointer.
+/// Platform: Windows, Linux, macOS (behavior may be app-wide on some platforms).
+#[no_mangle]
+pub extern "C" fn wry_window_set_theme(win: *mut WryWindow, theme: c_int) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &*win };
+    if let Some(ref window) = win.window {
+        let t = match theme {
+            1 => Some(Theme::Dark),
+            2 => Some(Theme::Light),
+            _ => None,
+        };
+        window.set_theme(t);
+    }
+}
+
 /// Set window decorations. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_decorations_direct(win: *mut WryWindow, decorations: bool) {
+pub extern "C" fn wry_window_set_decorations(win: *mut WryWindow, decorations: bool) {
     if win.is_null() {
         return;
     }
@@ -2724,12 +1947,11 @@ pub extern "C" fn wry_window_set_decorations_direct(win: *mut WryWindow, decorat
     if let Some(ref w) = win.window {
         w.set_decorations(decorations);
     }
-    win.pending_decorations = decorations;
 }
 
 /// Set skip taskbar. Call from a callback with the WryWindow pointer. Platform: Windows, Linux.
 #[no_mangle]
-pub extern "C" fn wry_window_set_skip_taskbar_direct(win: *mut WryWindow, skip: bool) {
+pub extern "C" fn wry_window_set_skip_taskbar(win: *mut WryWindow, skip: bool) {
     if win.is_null() {
         return;
     }
@@ -2747,12 +1969,11 @@ pub extern "C" fn wry_window_set_skip_taskbar_direct(win: *mut WryWindow, skip: 
             let _ = w.set_skip_taskbar(skip);
         }
     }
-    win.pending_skip_taskbar = skip;
 }
 
 /// Set content protection. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_content_protected_direct(win: *mut WryWindow, protected: bool) {
+pub extern "C" fn wry_window_set_content_protected(win: *mut WryWindow, protected: bool) {
     if win.is_null() {
         return;
     }
@@ -2760,12 +1981,11 @@ pub extern "C" fn wry_window_set_content_protected_direct(win: *mut WryWindow, p
     if let Some(ref w) = win.window {
         w.set_content_protection(protected);
     }
-    win.pending_content_protected = protected;
 }
 
 /// Set undecorated shadow. Call from a callback with the WryWindow pointer. Platform: Windows.
 #[no_mangle]
-pub extern "C" fn wry_window_set_shadow_direct(win: *mut WryWindow, shadow: bool) {
+pub extern "C" fn wry_window_set_shadow(win: *mut WryWindow, shadow: bool) {
     if win.is_null() {
         return;
     }
@@ -2775,12 +1995,11 @@ pub extern "C" fn wry_window_set_shadow_direct(win: *mut WryWindow, shadow: bool
         use tao::platform::windows::WindowExtWindows;
         w.set_undecorated_shadow(shadow);
     }
-    win.pending_shadow = shadow;
 }
 
 /// Set always on bottom. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_always_on_bottom_direct(win: *mut WryWindow, always_on_bottom: bool) {
+pub extern "C" fn wry_window_set_always_on_bottom(win: *mut WryWindow, always_on_bottom: bool) {
     if win.is_null() {
         return;
     }
@@ -2788,12 +2007,11 @@ pub extern "C" fn wry_window_set_always_on_bottom_direct(win: *mut WryWindow, al
     if let Some(ref w) = win.window {
         w.set_always_on_bottom(always_on_bottom);
     }
-    win.pending_always_on_bottom = always_on_bottom;
 }
 
 /// Set maximizable. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_maximizable_direct(win: *mut WryWindow, maximizable: bool) {
+pub extern "C" fn wry_window_set_maximizable(win: *mut WryWindow, maximizable: bool) {
     if win.is_null() {
         return;
     }
@@ -2801,12 +2019,11 @@ pub extern "C" fn wry_window_set_maximizable_direct(win: *mut WryWindow, maximiz
     if let Some(ref w) = win.window {
         w.set_maximizable(maximizable);
     }
-    win.pending_maximizable = maximizable;
 }
 
 /// Set minimizable. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_minimizable_direct(win: *mut WryWindow, minimizable: bool) {
+pub extern "C" fn wry_window_set_minimizable(win: *mut WryWindow, minimizable: bool) {
     if win.is_null() {
         return;
     }
@@ -2814,12 +2031,11 @@ pub extern "C" fn wry_window_set_minimizable_direct(win: *mut WryWindow, minimiz
     if let Some(ref w) = win.window {
         w.set_minimizable(minimizable);
     }
-    win.pending_minimizable = minimizable;
 }
 
 /// Set closable. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_closable_direct(win: *mut WryWindow, closable: bool) {
+pub extern "C" fn wry_window_set_closable(win: *mut WryWindow, closable: bool) {
     if win.is_null() {
         return;
     }
@@ -2827,12 +2043,11 @@ pub extern "C" fn wry_window_set_closable_direct(win: *mut WryWindow, closable: 
     if let Some(ref w) = win.window {
         w.set_closable(closable);
     }
-    win.pending_closable = closable;
 }
 
 /// Set focusable. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_focusable_direct(win: *mut WryWindow, focusable: bool) {
+pub extern "C" fn wry_window_set_focusable(win: *mut WryWindow, focusable: bool) {
     if win.is_null() {
         return;
     }
@@ -2840,22 +2055,20 @@ pub extern "C" fn wry_window_set_focusable_direct(win: *mut WryWindow, focusable
     if let Some(ref w) = win.window {
         w.set_focusable(focusable);
     }
-    win.pending_focusable = focusable;
 }
 
 /// Set webview zoom level. Call from a callback with the WryWindow pointer.
 /// 1.0 = 100%, 2.0 = 200%, etc.
 #[no_mangle]
-pub extern "C" fn wry_window_set_zoom_direct(win: *mut WryWindow, zoom: f64) {
+pub extern "C" fn wry_window_set_zoom(win: *mut WryWindow, zoom: f64) {
     if win.is_null() {
         return;
     }
     let win = unsafe { &mut *win };
     let z = if zoom > 0.0 { zoom } else { 1.0 };
     if let Some(ref wv) = win.webview {
-        log_err!(wv.zoom(z), "zoom_direct");
+        log_err!(wv.zoom(z), "zoom");
     }
-    win.pending_zoom = z;
 }
 
 /// Restore the window from minimized or maximized state.
@@ -2874,7 +2087,7 @@ pub extern "C" fn wry_window_restore(win: *mut WryWindow) {
 
 /// Set fullscreen state. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_fullscreen_direct(win: *mut WryWindow, fullscreen: bool) {
+pub extern "C" fn wry_window_set_fullscreen(win: *mut WryWindow, fullscreen: bool) {
     if win.is_null() {
         return;
     }
@@ -2890,7 +2103,7 @@ pub extern "C" fn wry_window_set_fullscreen_direct(win: *mut WryWindow, fullscre
 
 /// Set maximized state. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_maximized_direct(win: *mut WryWindow, maximized: bool) {
+pub extern "C" fn wry_window_set_maximized(win: *mut WryWindow, maximized: bool) {
     if win.is_null() {
         return;
     }
@@ -2902,7 +2115,7 @@ pub extern "C" fn wry_window_set_maximized_direct(win: *mut WryWindow, maximized
 
 /// Set minimized state. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_minimized_direct(win: *mut WryWindow, minimized: bool) {
+pub extern "C" fn wry_window_set_minimized(win: *mut WryWindow, minimized: bool) {
     if win.is_null() {
         return;
     }
@@ -2914,7 +2127,7 @@ pub extern "C" fn wry_window_set_minimized_direct(win: *mut WryWindow, minimized
 
 /// Set topmost (always on top) state. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_topmost_direct(win: *mut WryWindow, topmost: bool) {
+pub extern "C" fn wry_window_set_topmost(win: *mut WryWindow, topmost: bool) {
     if win.is_null() {
         return;
     }
@@ -2926,7 +2139,7 @@ pub extern "C" fn wry_window_set_topmost_direct(win: *mut WryWindow, topmost: bo
 
 /// Set visibility state. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_visible_direct(win: *mut WryWindow, visible: bool) {
+pub extern "C" fn wry_window_set_visible(win: *mut WryWindow, visible: bool) {
     if win.is_null() {
         return;
     }
@@ -2968,7 +2181,7 @@ pub extern "C" fn wry_window_get_all_monitors(
 
 /// Set resizable state. Call from a callback with the WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_set_resizable_direct(win: *mut WryWindow, resizable: bool) {
+pub extern "C" fn wry_window_set_resizable(win: *mut WryWindow, resizable: bool) {
     if win.is_null() {
         return;
     }
@@ -2981,7 +2194,7 @@ pub extern "C" fn wry_window_set_resizable_direct(win: *mut WryWindow, resizable
 /// Center the window on its current monitor. Call from a callback with the
 /// WryWindow pointer.
 #[no_mangle]
-pub extern "C" fn wry_window_center_direct(win: *mut WryWindow) {
+pub extern "C" fn wry_window_center(win: *mut WryWindow) {
     if win.is_null() {
         return;
     }
@@ -3069,7 +2282,7 @@ pub extern "C" fn wry_window_clear_all_browsing_data(win: *mut WryWindow) {
 ///
 /// Platform: macOS not implemented.
 #[no_mangle]
-pub extern "C" fn wry_window_set_background_color_direct(
+pub extern "C" fn wry_window_set_background_color(
     win: *mut WryWindow,
     r: u8,
     g: u8,
@@ -3082,6 +2295,63 @@ pub extern "C" fn wry_window_set_background_color_direct(
     let win = unsafe { &*win };
     if let Some(ref wv) = win.webview {
         log_err!(wv.set_background_color((r, g, b, a)), "set_background_color");
+    }
+}
+
+/// Set the window icon from RGBA pixel data at runtime.
+/// Call from a callback or dispatch with the WryWindow pointer.
+/// Pass null / zero length / zero dimensions to clear the icon.
+///
+/// Platform: Windows and Linux only. macOS has no per-window icon.
+#[no_mangle]
+pub extern "C" fn wry_window_set_icon(
+    win: *mut WryWindow,
+    rgba: *const u8,
+    rgba_len: c_int,
+    width: c_int,
+    height: c_int,
+) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &*win };
+    if let Some(ref w) = win.window {
+        if rgba.is_null() || rgba_len <= 0 || width <= 0 || height <= 0 {
+            w.set_window_icon(None);
+            return;
+        }
+        let data = unsafe { std::slice::from_raw_parts(rgba, rgba_len as usize) }.to_vec();
+        match Icon::from_rgba(data, width as u32, height as u32) {
+            Ok(icon) => w.set_window_icon(Some(icon)),
+            Err(e) => eprintln!("[wry-native] wry_window_set_icon: {}", e),
+        }
+    }
+}
+
+/// Set the window icon from encoded image file bytes (PNG, ICO, JPEG, BMP, GIF) at runtime.
+/// Call from a callback or dispatch with the WryWindow pointer.
+/// Pass null or zero length to clear the icon.
+///
+/// Platform: Windows and Linux only. macOS has no per-window icon.
+#[no_mangle]
+pub extern "C" fn wry_window_set_icon_from_bytes(
+    win: *mut WryWindow,
+    data: *const u8,
+    data_len: c_int,
+) {
+    if win.is_null() {
+        return;
+    }
+    let win = unsafe { &*win };
+    if let Some(ref w) = win.window {
+        if data.is_null() || data_len <= 0 {
+            w.set_window_icon(None);
+            return;
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(data, data_len as usize) };
+        if let Some(icon) = decode_icon_from_bytes(bytes) {
+            w.set_window_icon(Some(icon));
+        }
     }
 }
 
@@ -3149,114 +2419,6 @@ pub extern "C" fn wry_webview_version() -> *mut c_char {
 }
 
 // ---------------------------------------------------------------------------
-// Event callbacks (pre-run via app+id)
-// ---------------------------------------------------------------------------
-
-/// Set the close-requested callback. Return true to allow close, false to
-/// prevent. Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_on_close(
-    app: *mut WryApp,
-    window_id: usize,
-    callback: CloseCallback,
-    ctx: *mut c_void,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.close_handler = Some((callback, ctx as usize));
-    }
-}
-
-/// Set the window-resized callback. Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_on_resize(
-    app: *mut WryApp,
-    window_id: usize,
-    callback: ResizeCallback,
-    ctx: *mut c_void,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.resize_handler = Some((callback, ctx as usize));
-    }
-}
-
-/// Set the window-moved callback. Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_on_move(
-    app: *mut WryApp,
-    window_id: usize,
-    callback: MoveCallback,
-    ctx: *mut c_void,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.move_handler = Some((callback, ctx as usize));
-    }
-}
-
-/// Set the window focus-change callback. Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_on_focus(
-    app: *mut WryApp,
-    window_id: usize,
-    callback: FocusCallback,
-    ctx: *mut c_void,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.focus_handler = Some((callback, ctx as usize));
-    }
-}
-
-/// Set a navigation handler. Called before each navigation with the target URL.
-/// Return true to allow the navigation, false to block it.
-/// Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_set_navigation_handler(
-    app: *mut WryApp,
-    window_id: usize,
-    callback: NavigationCallback,
-    ctx: *mut c_void,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.navigation_handler = Some((callback, ctx as usize));
-    }
-}
-
-/// Set a page load event handler. Called when a page starts loading (event=0)
-/// and when it finishes loading (event=1).
-/// Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_set_page_load_handler(
-    app: *mut WryApp,
-    window_id: usize,
-    callback: PageLoadCallback,
-    ctx: *mut c_void,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.page_load_handler = Some((callback, ctx as usize));
-    }
-}
-
-/// Set a drag-drop event handler. Called when files are dragged/dropped on the
-/// webview. The callback receives an event type (0=Enter, 1=Over, 2=Drop,
-/// 3=Leave), an array of file path strings, the path count, and the cursor
-/// position (x, y) relative to the webview.
-///
-/// Return true to block the OS default behavior (which enables native file
-/// drop on `<input type="file">`).
-///
-/// Must be called before `wry_app_run()`.
-#[no_mangle]
-pub extern "C" fn wry_window_on_drag_drop(
-    app: *mut WryApp,
-    window_id: usize,
-    callback: DragDropCallback,
-    ctx: *mut c_void,
-) {
-    if let Some(win) = get_pending_window(app, window_id) {
-        win.drag_drop_handler = Some((callback, ctx as usize));
-    }
-}
-
-// ---------------------------------------------------------------------------
 // Cross-thread dispatch
 // ---------------------------------------------------------------------------
 
@@ -3265,7 +2427,7 @@ pub extern "C" fn wry_window_on_drag_drop(
 /// and the context pointer.
 ///
 /// `app` is the application handle. `window_id` is the window's numeric ID
-/// returned by `wry_window_new`.
+/// returned by `wry_window_create`.
 #[no_mangle]
 pub extern "C" fn wry_window_dispatch(
     app: *mut WryApp,
@@ -3292,88 +2454,7 @@ pub extern "C" fn wry_window_dispatch(
 mod tests {
     use std::ffi::{CStr, CString};
 
-    use super::{clamp_window_position_to_bounds, c_str_to_string, decode_icon_from_bytes};
-
-    /// Monitor 0..1920 x 0..1080; window 100x100; no overflow.
-    #[test]
-    fn prevent_overflow_already_inside() {
-        let (x, y) = clamp_window_position_to_bounds(
-            0, 0, 1920, 1080,
-            100, 200, 100, 100,
-        );
-        assert_eq!((x, y), (100, 200));
-    }
-
-    /// Window partly off right: clamp x so right edge fits.
-    #[test]
-    fn prevent_overflow_clamp_right() {
-        let (x, y) = clamp_window_position_to_bounds(
-            0, 0, 1920, 1080,
-            1900, 100, 100, 100,
-        );
-        assert_eq!((x, y), (1820, 100)); // 1820 + 100 = 1920
-    }
-
-    /// Window partly off bottom: clamp y.
-    #[test]
-    fn prevent_overflow_clamp_bottom() {
-        let (x, y) = clamp_window_position_to_bounds(
-            0, 0, 1920, 1080,
-            100, 1050, 100, 100,
-        );
-        assert_eq!((x, y), (100, 980)); // 980 + 100 = 1080
-    }
-
-    /// Window off left: clamp x to left.
-    #[test]
-    fn prevent_overflow_clamp_left() {
-        let (x, y) = clamp_window_position_to_bounds(
-            0, 0, 1920, 1080,
-            -50, 100, 100, 100,
-        );
-        assert_eq!((x, y), (0, 100));
-    }
-
-    /// Window off top: clamp y to top.
-    #[test]
-    fn prevent_overflow_clamp_top() {
-        let (x, y) = clamp_window_position_to_bounds(
-            0, 0, 1920, 1080,
-            100, -30, 100, 100,
-        );
-        assert_eq!((x, y), (100, 0));
-    }
-
-    /// Window larger than monitor: clamp to top-left so as much as possible is visible.
-    #[test]
-    fn prevent_overflow_window_larger_than_monitor() {
-        let (x, y) = clamp_window_position_to_bounds(
-            0, 0, 1920, 1080,
-            -100, -50, 2500, 1200,
-        );
-        // max_x = (1920 - 2500).max(0) = 0, max_y = (1080 - 1200).max(0) = 0
-        assert_eq!((x, y), (0, 0));
-    }
-
-    /// With margin: usable area is (10, 20)..(1910, 1060); window at (1900, 1040) 100x100 gets clamped.
-    #[test]
-    fn prevent_overflow_with_margin() {
-        let (x, y) = clamp_window_position_to_bounds(
-            10, 20, 1910, 1060,
-            1900, 1040, 100, 100,
-        );
-        assert_eq!((x, y), (1810, 960)); // 1810+100=1910, 960+100=1060
-    }
-
-    /// Corner case: window exactly fits at bottom-right.
-    #[test]
-    fn prevent_overflow_exact_fit() {
-        let (x, y) = clamp_window_position_to_bounds(
-            0, 0, 1920, 1080,
-            1820, 980, 100, 100,
-        );
-        assert_eq!((x, y), (1820, 980));
-    }
+    use super::{c_str_to_string, decode_icon_from_bytes};
 
     // ---------------------------------------------------------------------------
     // c_str_to_string

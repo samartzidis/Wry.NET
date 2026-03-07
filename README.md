@@ -122,19 +122,22 @@ class Program
         bridge.RegisterDialogService()
             .RegisterService(new GreetService());
 
-        using var app = new WryApp();
-        var window = app.CreateWindow();
-
-        window.Title = "My Wry App";
-        window.Size = (1024, 768);
-        window.Center();
-
-        bridge.Attach(window);
-
         var devUrl = args.FirstOrDefault(a => a.StartsWith("--dev-url="))?.Split('=', 2)[1];
-        window.LoadFrontend(
-            assembly: Assembly.GetExecutingAssembly(),
-            devUrl: devUrl);
+
+        var options = new WryWindowCreateOptions
+        {
+            Title = "My Wry App",
+            Width = 1024,
+            Height = 768,
+        };
+        options.SetFrontend(devUrl: devUrl, assembly: Assembly.GetExecutingAssembly());
+        options.AddBridge(bridge);
+
+        using var app = new WryApp();
+        app.CreateWindow(options: options, onCreated: window =>
+        {
+            window.Center();
+        });
 
         app.Run();
     }
@@ -197,20 +200,18 @@ dotnet publish -c Release -r win-x64 --no-self-contained -p:PublishSingleFile=tr
 
 The first `dotnet build` generates TypeScript bindings and builds the frontend (output goes to `wwwroot/` by default). The subsequent `dotnet publish` with `WryBridgeEmbedFrontend=true` embeds all files from `wwwroot/` as .NET resources in the executable.
 
-At runtime, `LoadFrontend` detects the embedded assets and serves them via a custom `app://` scheme — no files are extracted to disk. If no embedded assets are found (e.g. during normal development), it falls back to loading from `wwwroot/index.html` on disk.
+At runtime, `SetFrontend` detects the embedded assets and serves them via a custom `app://` scheme - no files are extracted to disk. If no embedded assets are found (e.g. during normal development), it falls back to loading from `wwwroot/index.html` on disk.
 
 > **Note:** `WryBridgeEmbedFrontend` can also be used without `PublishSingleFile`. This produces a multi-file output where frontend assets are baked into the assembly rather than loose on disk.
 
 ## Live UI Development
 
-For hot-reload during frontend development, pass a dev server URL:
+For hot-reload during frontend development, pass a dev server URL via `SetFrontend`:
 
 ```csharp
 var devUrl = args.FirstOrDefault(a => a.StartsWith("--dev-url="))?.Split('=', 2)[1];
 
-window.LoadFrontend(
-    assembly: Assembly.GetExecutingAssembly(),
-    devUrl: devUrl);
+options.SetFrontend(devUrl: devUrl, assembly: Assembly.GetExecutingAssembly());
 ```
 
 Then run the Vite dev server and the .NET app side by side:
@@ -230,9 +231,13 @@ Changes to React/Vue/Svelte components appear instantly in the window. The bridg
 
 ## Window Icon
 
-Set the window icon from any image file (PNG, ICO, JPEG, BMP, GIF) — decoded natively, no image libraries needed on the .NET side:
+Set the window icon at creation time or change it at runtime. Supports PNG, ICO, JPEG, BMP, and GIF - decoded natively, no image libraries needed on the .NET side:
 
 ```csharp
+// At creation time
+var options = new WryWindowCreateOptions { IconPath = "icon.png" };
+
+// At runtime
 window.SetIconFromFile("icon.png");
 ```
 
