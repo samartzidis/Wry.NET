@@ -556,6 +556,28 @@ public sealed class WryWindow
     // =======================================================================
 
     /// <summary>
+    /// Gets the native window handle (HWND on Windows). Returns <c>nint.Zero</c> on macOS and Linux.
+    /// Valid until the window is destroyed.
+    /// </summary>
+    public nint Hwnd
+    {
+        get => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? NativeMethods.wry_window_get_hwnd(_nativePtr)
+            : nint.Zero;
+    }
+
+    /// <summary>
+    /// Gets the module instance handle (HINSTANCE on Windows). Returns <c>nint.Zero</c> on macOS and Linux.
+    /// Valid until the window is destroyed.
+    /// </summary>
+    public nint HInstance
+    {
+        get => RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
+            ? NativeMethods.wry_window_get_hinstance(_nativePtr)
+            : nint.Zero;
+    }
+
+    /// <summary>
     /// Gets the raw WebView2 controller (ICoreWebView2Controller) pointer for use with the WebView2 SDK.
     /// Valid until the window is destroyed. Use with COM interop or Microsoft.Web.WebView2.
     /// </summary>

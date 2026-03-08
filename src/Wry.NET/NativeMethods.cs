@@ -361,6 +361,16 @@ internal static partial class NativeMethods
     internal static partial nint wry_webview_version();
 
     // -----------------------------------------------------------------------
+    // Windows native window handles (HWND, HINSTANCE)
+    // -----------------------------------------------------------------------
+
+    [LibraryImport(LibName)]
+    internal static partial nint wry_window_get_hwnd(nint win);
+
+    [LibraryImport(LibName)]
+    internal static partial nint wry_window_get_hinstance(nint win);
+
+    // -----------------------------------------------------------------------
     // WebView2 native handles (Windows only)
     // -----------------------------------------------------------------------
 

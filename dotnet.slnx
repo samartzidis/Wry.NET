@@ -2,6 +2,7 @@
   <Folder Name="/samples/">
     <Project Path="samples/BridgeApp/BridgeApp.csproj" />
     <Project Path="samples/HelloWorld/HelloWorld.csproj" />
+    <Project Path="samples/TrayApp/TrayApp.csproj" />
   </Folder>
   <Folder Name="/src/">
     <Project Path="src/Wry.NET.Bridge.Generator/Wry.NET.Bridge.Generator.csproj" />

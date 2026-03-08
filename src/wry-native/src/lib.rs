@@ -2457,7 +2457,49 @@ pub extern "C" fn wry_webview_version() -> *mut c_char {
 // ---------------------------------------------------------------------------
 // WebView2 native handles (Windows only)
 // ---------------------------------------------------------------------------
-//
+// ---------------------------------------------------------------------------
+// Windows native window handles (HWND, HINSTANCE)
+// ---------------------------------------------------------------------------
+
+/// Return the window's HWND. Windows only; returns null on other platforms.
+/// The handle is valid until the window is destroyed.
+#[no_mangle]
+pub extern "C" fn wry_window_get_hwnd(win: *mut WryWindow) -> *mut c_void {
+    if win.is_null() {
+        return std::ptr::null_mut();
+    }
+    let win = unsafe { &*win };
+    #[cfg(target_os = "windows")]
+    if let Some(ref w) = win.window {
+        use tao::platform::windows::WindowExtWindows;
+        return w.hwnd() as *mut c_void;
+    }
+    std::ptr::null_mut()
+}
+
+/// Return the window's HINSTANCE (module instance handle). Windows only; returns null on other platforms.
+#[no_mangle]
+pub extern "C" fn wry_window_get_hinstance(win: *mut WryWindow) -> *mut c_void {
+    if win.is_null() {
+        return std::ptr::null_mut();
+    }
+    let win = unsafe { &*win };
+    #[cfg(target_os = "windows")]
+    if let Some(ref w) = win.window {
+        use tao::platform::windows::WindowExtWindows;
+        let hwnd = w.hwnd();
+        let ptr = unsafe {
+            windows::Win32::UI::WindowsAndMessaging::GetWindowLongPtrW(
+                windows::Win32::Foundation::HWND(hwnd as _),
+                windows::Win32::UI::WindowsAndMessaging::GWLP_HINSTANCE,
+            )
+        };
+        return ptr as *mut c_void;
+    }
+    std::ptr::null_mut()
+}
+
+// ---------------------------------------------------------------------------
 // Return raw COM interface pointers (ICoreWebView2Controller, ICoreWebView2Environment,
 // ICoreWebView2). The caller (e.g. C#) may use them with the WebView2 SDK. We clone the
 // interface so the returned pointer has its own ref; the caller must not release it

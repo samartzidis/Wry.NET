@@ -1,6 +1,5 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
-using System.Threading;
 
 namespace Wry.NET;
 
@@ -162,21 +161,71 @@ public sealed class WryWindowCreateOptions
 }
 
 /// <summary>
+/// Abstraction for the Wry application. Use for dependency injection so consumers
+/// can depend on <see cref="IWryApp"/> and inject <see cref="WryApp"/> or a test double.
+/// </summary>
+public interface IWryApp : IDisposable
+{
+    /// <summary>All windows created by this app.</summary>
+    IReadOnlyList<WryWindow> Windows { get; }
+
+    /// <summary>All tray icons created by this app.</summary>
+    IReadOnlyList<WryTrayIcon> TrayIcons { get; }
+
+    /// <summary>
+    /// Raised when all windows have closed. Set
+    /// <see cref="ExitRequestedEventArgs.Cancel"/> to true to keep the event
+    /// loop running (e.g. for tray-icon-only mode).
+    /// </summary>
+    event EventHandler<ExitRequestedEventArgs>? ExitRequested;
+
+    /// <summary>
+    /// Raised when any window has been destroyed (platform Destroyed event).
+    /// </summary>
+    event EventHandler<WindowDestroyedEventArgs>? WindowDestroyed;
+
+    /// <summary>
+    /// Create a new window. The window is materialized asynchronously; use <paramref name="onCreated"/>
+    /// to receive the live <see cref="WryWindow"/> when it is ready.
+    /// </summary>
+    void CreateWindow(
+        WryWindowCreateOptions? options = null,
+        Action<WryWindow>? onCreated = null,
+        Action<string>? onError = null);
+
+    /// <summary>
+    /// Create a new window owned by <paramref name="owner"/>. The window is materialized asynchronously;
+    /// use <paramref name="onCreated"/> to receive the live <see cref="WryWindow"/> when it is ready.
+    /// </summary>
+    void CreateWindow(
+        WryWindow? owner,
+        WryWindowCreateOptions? options = null,
+        Action<WryWindow>? onCreated = null,
+        Action<string>? onError = null);
+
+    /// <summary>
+    /// Create a new tray icon with all configuration in one call.
+    /// The tray is materialized when <see cref="Run"/> is called.
+    /// </summary>
+    WryTrayIcon CreateTrayIcon(WryTrayIconCreateOptions options);
+
+    /// <summary>
+    /// Run the application event loop. Blocks the calling thread until the application exits.
+    /// Must be called on the main thread with [STAThread] attribute.
+    /// </summary>
+    void Run();
+
+    /// <summary>
+    /// Request the application to exit with the given exit code. Safe to call from any thread.
+    /// </summary>
+    void Exit(int exitCode = 0);
+}
+
+/// <summary>
 /// Top-level application object. Owns the event loop and all windows.
 /// Must be created and run on the main thread.
 /// </summary>
-/// <example>
-/// <code>
-/// using var app = new WryApp();
-/// app.CreateWindow(new WryWindowCreateOptions
-/// {
-///     Title = "Hello",
-///     Url = "https://example.com",
-/// });
-/// app.Run(); // blocks until all windows close
-/// </code>
-/// </example>
-public sealed class WryApp : IDisposable
+public sealed class WryApp : IWryApp
 {
     internal nint Handle { get; private set; }
     private bool _disposed;
@@ -546,6 +595,7 @@ public sealed class WryApp : IDisposable
     public unsafe void Run()
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+        EnsureStaThreadForRun();
 
         // Register the exit-requested callback.
         delegate* unmanaged[Cdecl]<byte, int, nint, byte> fp = &ExitRequestedBridge;
@@ -562,8 +612,6 @@ public sealed class WryApp : IDisposable
         // Queue dispatches to capture native pointers after Init (trays only; windows use window_created callback).
         foreach (var tray in _trays)
             tray.QueuePointerCapture();
-
-        EnsureStaThreadForRun();
 
         // This blocks until the application exits.
         NativeMethods.wry_app_run(Handle);
@@ -586,6 +634,7 @@ public sealed class WryApp : IDisposable
     public void Exit(int exitCode = 0)
     {
         ObjectDisposedException.ThrowIf(_disposed, this);
+
         NativeMethods.wry_app_exit(Handle, exitCode);
     }
 

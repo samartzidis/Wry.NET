@@ -36,31 +36,6 @@ public sealed class WryTrayIconCreateOptions
 /// and attach event handlers. Properties are thread-safe and can be set from
 /// any thread after the event loop starts.
 /// </summary>
-/// <example>
-/// <code>
-/// using var app = new WryApp();
-///
-/// var menu = new WryTrayMenu();
-/// menu.AddItem("open", "Open");
-/// menu.AddSeparator();
-/// menu.AddItem("quit", "Quit");
-///
-/// var tray = app.CreateTrayIcon(new WryTrayIconCreateOptions
-/// {
-///     Tooltip = "My App",
-///     IconData = File.ReadAllBytes("icon.png"),
-///     Menu = menu,
-/// });
-///
-/// tray.MenuItemClicked += (s, e) =&gt;
-/// {
-///     if (e.ItemId == "quit")
-///         tray.Remove();
-/// };
-///
-/// app.Run();
-/// </code>
-/// </example>
 public sealed class WryTrayIcon
 {
     private readonly WryApp _app;
