@@ -7,7 +7,7 @@ namespace Wry.NET;
 /// Top-level application object. Owns the event loop and all windows.
 /// Must be created and run on the main thread.
 /// </summary>
-public sealed class WryApp
+public sealed class WryApp : IDisposable
 {
     internal nint Handle { get; private set; }
     private bool _disposed;
