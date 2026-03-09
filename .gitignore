@@ -26,7 +26,7 @@ Cargo.lock
 
 # IDE/editor files
 .idea/
-.vscode/
+#.vscode/
 .vs/
 *.swp
 *.swo

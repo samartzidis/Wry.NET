@@ -1,0 +1,264 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build:native",
+      "type": "shell",
+      "options": {
+        "cwd": "${workspaceFolder}/src/wry-native"
+      },
+      "windows": {
+        "command": "cargo build --release; New-Item -ItemType Directory -Force -Path '${workspaceFolder}/build/runtimes/win-x64/native' | Out-Null; Copy-Item '${workspaceFolder}/src/wry-native/target/release/wry_native.dll' '${workspaceFolder}/build/runtimes/win-x64/native/'"
+      },
+      "linux": {
+        "command": "cargo build --release && mkdir -p '${workspaceFolder}/build/runtimes/linux-x64/native' && cp '${workspaceFolder}/src/wry-native/target/release/libwry_native.so' '${workspaceFolder}/build/runtimes/linux-x64/native/'"
+      },
+      "osx": {
+        "command": "cargo build --release && ARCH=$(uname -m) && if [ \"$ARCH\" = \"arm64\" ]; then RID=osx-arm64; else RID=osx-x64; fi && mkdir -p \"${workspaceFolder}/build/runtimes/$RID/native\" && cp \"${workspaceFolder}/src/wry-native/target/release/libwry_native.dylib\" \"${workspaceFolder}/build/runtimes/$RID/native/\""
+      },
+      "problemMatcher": "$rustc",
+      "detail": "Build Rust native library (release) and stage to build/runtimes/{rid}"
+    },
+    {
+      "label": "build-debug:native",
+      "type": "process",
+      "command": "cargo",
+      "args": ["build"],
+      "options": {
+        "cwd": "${workspaceFolder}/src/wry-native"
+      },
+      "problemMatcher": "$rustc",
+      "detail": "Build Rust native library (debug)"
+    },
+    {
+      "label": "build:Wry.NET",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/src/Wry.NET/Wry.NET.csproj",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary;ForceNoAlign"
+      ],
+      "dependsOn": ["build:native"],
+      "problemMatcher": "$msCompile",
+      "detail": "Build Wry.NET library (depends on native)"
+    },
+    {
+      "label": "test",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "test",
+        "${workspaceFolder}/tests/Wry.NET.Bridge.Generator.Tests/Wry.NET.Bridge.Generator.Tests.csproj",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary;ForceNoAlign"
+      ],
+      "problemMatcher": "$msCompile",
+      "detail": "Run BindingGenerator unit tests"
+    },
+    {
+      "label": "pack:Wry.NET",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "pack",
+        "${workspaceFolder}/src/Wry.NET/Wry.NET.csproj",
+        "-c",
+        "Release",
+        "-o",
+        "${workspaceFolder}/nupkg"
+      ],
+      "dependsOn": ["build:native"],
+      "problemMatcher": "$msCompile",
+      "detail": "Create Wry.NET NuGet package (native binaries included only when staged in build/runtimes)"
+    },
+    {
+      "label": "pack:Wry.NET.Bridge",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "pack",
+        "${workspaceFolder}/src/Wry.NET.Bridge/Wry.NET.Bridge.csproj",
+        "-c",
+        "Release",
+        "-o",
+        "${workspaceFolder}/nupkg"
+      ],
+      "problemMatcher": "$msCompile",
+      "detail": "Create Wry.NET.Bridge NuGet package"
+    },
+    {
+      "label": "pack",
+      "dependsOn": ["pack:Wry.NET", "pack:Wry.NET.Bridge"],
+      "problemMatcher": [],
+      "detail": "Pack both Wry.NET and Wry.NET.Bridge NuGet packages"
+    },
+    {
+      "label": "build:HelloWorld",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/samples/HelloWorld/HelloWorld.csproj",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary;ForceNoAlign"
+      ],
+      "problemMatcher": "$msCompile",
+      "detail": "Build HelloWorld sample (Wry.Native only)"
+    },
+    {
+      "label": "run:HelloWorld",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/samples/HelloWorld/HelloWorld.csproj"
+      ],
+      "problemMatcher": "$msCompile",
+      "detail": "Run HelloWorld sample"
+    },
+    {
+      "label": "build:TrayApp",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/samples/TrayApp/TrayApp.csproj",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary;ForceNoAlign"
+      ],
+      "problemMatcher": "$msCompile",
+      "detail": "Build TrayApp sample (tray-only, Wry.NET)"
+    },
+    {
+      "label": "run:TrayApp",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/samples/TrayApp/TrayApp.csproj"
+      ],
+      "problemMatcher": "$msCompile",
+      "detail": "Run TrayApp sample (tray icon with Quit)"
+    },
+    {
+      "label": "build:BridgeApp",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/samples/BridgeApp/BridgeApp.csproj",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary;ForceNoAlign"
+      ],
+      "problemMatcher": "$msCompile",
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "detail": "Build C#, generate TS bindings, build frontend"
+    },
+    {
+      "label": "build-release:BridgeApp",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "build",
+        "${workspaceFolder}/samples/BridgeApp/BridgeApp.csproj",
+        "-c",
+        "Release",
+        "/property:GenerateFullPaths=true",
+        "/consoleloggerparameters:NoSummary;ForceNoAlign"
+      ],
+      "problemMatcher": "$msCompile",
+      "detail": "Release build"
+    },
+    {
+      "label": "run:BridgeApp",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "run",
+        "--project",
+        "${workspaceFolder}/samples/BridgeApp/BridgeApp.csproj"
+      ],
+      "problemMatcher": "$msCompile",
+      "detail": "Build and run the BridgeApp"
+    },
+    {
+      "label": "dev:backend:BridgeApp",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "watch",
+        "--project",
+        "${workspaceFolder}/samples/BridgeApp/BridgeApp.csproj",
+        "--",
+        "--dev-url=http://localhost:5173"
+      ],
+      "problemMatcher": "$msCompile",
+      "isBackground": true,
+      "detail": "Hot-reload .NET backend pointing at Vite dev server"
+    },
+    {
+      "label": "dev:frontend:BridgeApp",
+      "type": "npm",
+      "script": "dev",
+      "path": "samples/BridgeApp/frontend",
+      "problemMatcher": [],
+      "isBackground": true,
+      "detail": "Start Vite dev server with HMR"
+    },
+    {
+      "label": "clear-cache:Wry.NET.Bridge",
+      "type": "shell",
+      "windows": {
+        "command": "Remove-Item -Recurse -Force \"$env:USERPROFILE\\.nuget\\packages\\wry.net.bridge\\*\" -ErrorAction SilentlyContinue; Write-Host 'Wry.NET.Bridge NuGet cache cleared.'"
+      },
+      "linux": {
+        "command": "rm -rf ~/.nuget/packages/wry.net.bridge/* && echo 'Wry.NET.Bridge NuGet cache cleared.'"
+      },
+      "osx": {
+        "command": "rm -rf ~/.nuget/packages/wry.net.bridge/* && echo 'Wry.NET.Bridge NuGet cache cleared.'"
+      },
+      "problemMatcher": [],
+      "detail": "Clear the local NuGet package cache for Wry.NET.Bridge"
+    },
+    {
+        "label": "clear-cache:Wry.NET",
+        "type": "shell",
+        "windows": {
+          "command": "Remove-Item -Recurse -Force \"$env:USERPROFILE\\.nuget\\packages\\wry.net\\*\" -ErrorAction SilentlyContinue; Write-Host 'Wry.NET NuGet cache cleared.'"
+        },
+        "linux": {
+          "command": "rm -rf ~/.nuget/packages/wry.net/* && echo 'Wry.NET NuGet cache cleared.'"
+        },
+        "osx": {
+          "command": "rm -rf ~/.nuget/packages/wry.net/* && echo 'Wry.NET NuGet cache cleared.'"
+        },
+        "problemMatcher": [],
+        "detail": "Clear the local NuGet package cache for Wry.NET"
+      },
+    {
+      "label": "publish-single-file:BridgeApp",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "publish",
+        "${workspaceFolder}/samples/BridgeApp/BridgeApp.csproj",
+        "-c",
+        "Release",
+        "-r",
+        "win-x64",
+        "--no-self-contained",
+        "-p:PublishSingleFile=true",
+        "-p:WryBridgeEmbedFrontend=true"
+      ],
+      "problemMatcher": "$msCompile",
+      "detail": "Publish as single-file exe with embedded frontend"
+    }
+  ]
+}
