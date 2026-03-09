@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using Wry.NET;
 
 class Program
@@ -15,13 +16,29 @@ class Program
         menu.AddSeparator();
         menu.AddItem("quit", "Quit");
 
-        var iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
+        var resDir = Path.Combine(AppContext.BaseDirectory, "res");
+        var icons = new List<byte[]>();
+        for (int i = 1; i <= 12; i++)
+        {
+            var path = Path.Combine(resDir, $"{i}.ico");
+            if (File.Exists(path))
+                icons.Add(File.ReadAllBytes(path));
+        }
+
         var tray = app.CreateTrayIcon(new WryTrayIconCreateOptions
         {
             Tooltip = "TrayApp",
-            IconData = File.Exists(iconPath) ? File.ReadAllBytes(iconPath) : null,
+            IconData = icons.Count > 0 ? icons[0] : null,
             Menu = menu,
         });
+
+        int index = 0;
+        using var timer = new System.Threading.Timer(_ =>
+        {
+            if (icons.Count == 0) return;
+            index = (index + 1) % icons.Count;
+            tray.SetIconFromBytes(icons[index]);
+        }, null, 100, 100);
 
         tray.MenuItemClicked += (_, e) =>
         {
@@ -31,6 +48,7 @@ class Program
                     WryDialog.Message("TrayApp - Wry.NET sample.\nTray-only app with a dialog.", "About TrayApp", kind: WryDialogKind.Info, parent: null);
                     break;
                 case "quit":
+                    timer.Change(Timeout.Infinite, Timeout.Infinite);
                     app.Exit(0);
                     break;
             }

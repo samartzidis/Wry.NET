@@ -12,9 +12,8 @@
     <ProjectReference Include="..\..\src\Wry.NET\Wry.NET.csproj" />
   </ItemGroup>
 
-  <!-- Tray icon (copy from BridgeApp if missing) -->
   <ItemGroup>
-    <None Include="app.ico" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="res\*.ico" CopyToOutputDirectory="PreserveNewest" Link="res\%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- Auto-build native library and copy DLL (dev workflow) -->
