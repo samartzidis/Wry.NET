@@ -30,16 +30,17 @@ namespace SampleApp
             bridge.RegisterService(new BackendService(bridge));
             
             // Prepare frontend (URL + protocol if embedded/disk) so we can pass at create time
-            var options = new WryWindowCreateOptions();
+            var options = new WryWindowCreateOptions { 
+                Title = "Wry.NET Bridge React App",
+                Width = 1024,
+                Height = 800,
+                DefaultContextMenus = false,
+                Visible = false,
+            };
             options.SetFrontend(devUrl: devUrl, assembly: Assembly.GetExecutingAssembly(), loggerFactory: loggerFactory);
-            options.Title = "Wry.NET Bridge React App";
-            options.Width = 1024;
-            options.Height = 800;
-            options.DefaultContextMenus = false;
             var iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
             if (File.Exists(iconPath))
-                options.IconPath = iconPath;            
-            options.Visible = false; 
+                options.IconPath = iconPath;
 
             // This adds the bridge to the window options, so it will be attached to the window when it is created.
             options.AddBridge(bridge); 
