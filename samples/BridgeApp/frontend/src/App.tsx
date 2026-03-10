@@ -1,6 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
-import { BackendService, DialogService, onProgress, onChildButtonPressed, WryDialogKind, WryDialogButtons } from "./bindings";
-import type { Person, Employee, ProgressEvent } from "./bindings";
+import { BackendService, DialogService, TrayService, onProgress, onChildButtonPressed, onTrayMenuItemClicked, onTrayIconEvent, onWindowFocusChanged, onWindowResized, WryDialogKind, WryDialogButtons } from "./bindings";
+import type { Person, Employee, ProgressEvent, TrayIconEventPayload } from "./bindings";
 import {
   callWithOptions,
   BridgeTimeoutError,
@@ -26,6 +26,13 @@ function App() {
   const [error, setError] = useState<string>("");
   const [dialogResult, setDialogResult] = useState<string>("");
   const [childMessage, setChildMessage] = useState<string>("");
+  const [trayIds, setTrayIds] = useState<number[]>([]);
+  const [lastTrayMenuItemClicked, setLastTrayMenuItemClicked] = useState<{ trayId: number; itemId: string } | null>(null);
+  const [lastTrayIconEvent, setLastTrayIconEvent] = useState<TrayIconEventPayload | null>(null);
+  const [trayTooltipInput, setTrayTooltipInput] = useState<string>("");
+  const [trayError, setTrayError] = useState<string>("");
+  const [lastWindowFocus, setLastWindowFocus] = useState<{ windowId: number; focused: boolean } | null>(null);
+  const [lastWindowResize, setLastWindowResize] = useState<{ windowId: number; width: number; height: number } | null>(null);
 
   // Ref to hold the cancellable promise for the cancellation test
   const cancelRef = useRef<CancellablePromise<string> | null>(null);
@@ -45,6 +52,35 @@ function App() {
       setChildMessage(`${data.message} at ${data.time}`);
     });
     return unsub;
+  }, []);
+
+  // Load tray IDs on mount; subscribe to tray menu and icon events
+  useEffect(() => {
+    TrayService.GetTrayIds().then((ids) => setTrayIds(ids)).catch(() => setTrayIds([]));
+    const unsubMenu = onTrayMenuItemClicked((data) => {
+      setLastTrayMenuItemClicked({ trayId: data.trayId, itemId: data.itemId });
+    });
+    const unsubIcon = onTrayIconEvent((data) => {
+      setLastTrayIconEvent(data);
+    });
+    return () => {
+      unsubMenu();
+      unsubIcon();
+    };
+  }, []);
+
+  // Subscribe to window focus and resize events (demo)
+  useEffect(() => {
+    const unsubFocus = onWindowFocusChanged((data) => {
+      setLastWindowFocus({ windowId: data.windowId, focused: data.focused });
+    });
+    const unsubResize = onWindowResized((data) => {
+      setLastWindowResize({ windowId: data.windowId, width: data.width, height: data.height });
+    });
+    return () => {
+      unsubFocus();
+      unsubResize();
+    };
   }, []);
 
   const handleGreet = useCallback(async () => {
@@ -294,6 +330,103 @@ function App() {
     }
   }, []);
 
+  // --- Tray (TrayService) ---
+  const firstTrayId = trayIds.length > 0 ? trayIds[0] : null;
+  const handleTrayRefreshIds = useCallback(async () => {
+    setTrayError("");
+    try {
+      const ids = await TrayService.GetTrayIds();
+      setTrayIds(ids);
+    } catch (e) {
+      setTrayError((e as Error).message);
+    }
+  }, []);
+  const handleSetTrayTooltip = useCallback(async () => {
+    if (firstTrayId == null) return;
+    setTrayError("");
+    try {
+      await TrayService.SetTooltip(firstTrayId, trayTooltipInput);
+    } catch (e) {
+      setTrayError((e as Error).message);
+    }
+  }, [firstTrayId, trayTooltipInput]);
+  const handleSetTrayVisible = useCallback(
+    async (visible: boolean) => {
+      if (firstTrayId == null) return;
+      setTrayError("");
+      try {
+        await TrayService.SetVisible(firstTrayId, visible);
+      } catch (e) {
+        setTrayError((e as Error).message);
+      }
+    },
+    [firstTrayId]
+  );
+  const handleSetMenuOnLeftClick = useCallback(
+    async (menuOnLeftClick: boolean) => {
+      if (firstTrayId == null) return;
+      setTrayError("");
+      try {
+        await TrayService.SetMenuOnLeftClick(firstTrayId, menuOnLeftClick);
+      } catch (e) {
+        setTrayError((e as Error).message);
+      }
+    },
+    [firstTrayId]
+  );
+  const handleAppendTrayItemFromJs = useCallback(async () => {
+    if (firstTrayId == null) return;
+    setTrayError("");
+    try {
+      await TrayService.AppendMenuItem(firstTrayId, "", "js-demo", "Added from JS", true);
+    } catch (e) {
+      setTrayError((e as Error).message);
+    }
+  }, [firstTrayId]);
+  const handleSetShowWindowLabel = useCallback(async () => {
+    if (firstTrayId == null) return;
+    setTrayError("");
+    try {
+      await TrayService.SetMenuItemText(firstTrayId, "show", "Show Window (from JS)");
+    } catch (e) {
+      setTrayError((e as Error).message);
+    }
+  }, [firstTrayId]);
+  const handleRemoveJsDemoItem = useCallback(async () => {
+    if (firstTrayId == null) return;
+    setTrayError("");
+    try {
+      await TrayService.RemoveMenuItem(firstTrayId, "js-demo");
+    } catch (e) {
+      setTrayError((e as Error).message);
+    }
+  }, [firstTrayId]);
+  const trayIconInputRef = useRef<HTMLInputElement>(null);
+  const handleSetTrayIconFromFile = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      if (firstTrayId == null || !e.target.files?.length) return;
+      const file = e.target.files[0];
+      setTrayError("");
+      try {
+        const base64 = await new Promise<string>((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => {
+            const dataUrl = r.result as string;
+            const base64 = dataUrl.replace(/^data:[^;]+;base64,/, "");
+            resolve(base64);
+          };
+          r.onerror = () => reject(r.error);
+          r.readAsDataURL(file);
+        });
+        await TrayService.SetIconFromBase64(firstTrayId, base64);
+      } catch (err) {
+        setTrayError((err as Error).message);
+      }
+      e.target.value = "";
+    },
+    [firstTrayId]
+  );
+
   return (
     <div className="container">
       <img src="app.png" alt="Wry.NET" className="app-logo" />
@@ -306,6 +439,22 @@ function App() {
       {childMessage && (
         <div className="result-item" style={{ marginBottom: "1rem", padding: "0.5rem", background: "rgba(100,108,255,0.1)", borderRadius: 4 }}>
           <strong>From child window:</strong> {childMessage}
+        </div>
+      )}
+
+      {(lastWindowFocus != null || lastWindowResize != null) && (
+        <div className="result-item" style={{ marginBottom: "1rem", padding: "0.5rem", background: "rgba(80,180,120,0.1)", borderRadius: 4 }}>
+          <strong>Window events:</strong>
+          {lastWindowFocus != null && (
+            <div style={{ marginTop: 4 }}>
+              Focus: window {lastWindowFocus.windowId} {lastWindowFocus.focused ? "gained focus" : "lost focus"}
+            </div>
+          )}
+          {lastWindowResize != null && (
+            <div style={{ marginTop: 4 }}>
+              Resize: window {lastWindowResize.windowId} → {lastWindowResize.width}×{lastWindowResize.height}
+            </div>
+          )}
         </div>
       )}
 
@@ -382,6 +531,82 @@ function App() {
       {dialogResult && (
         <div className="result-item" style={{ marginTop: 8 }}>
           <strong>Dialog:</strong> {dialogResult}
+        </div>
+      )}
+
+      <h2 className="section-title">Tray (TrayService)</h2>
+      <p className="description" style={{ marginTop: 0 }}>
+        Tray icons are created from C# before Run; you can change the icon, tooltip, menu, and more from JS. Use the bridge to get tray IDs, set icon (base64), tooltip, visibility, menu options, mutate menu items, and subscribe to tray events.
+      </p>
+      {trayError && <div className="error">{trayError}</div>}
+      <div className="actions">
+        <button className="test-btn" onClick={handleTrayRefreshIds}>
+          Refresh tray IDs
+        </button>
+        {firstTrayId != null && (
+          <>
+            <div style={{ display: "flex", alignItems: "center", gap: "0.5rem", flexWrap: "wrap" }}>
+              <input
+                type="text"
+                placeholder="Tooltip text"
+                value={trayTooltipInput}
+                onChange={(e) => setTrayTooltipInput(e.target.value)}
+                style={{ padding: "0.4rem 0.6rem", minWidth: 160 }}
+              />
+              <button className="test-btn" onClick={handleSetTrayTooltip}>
+                Set tooltip
+              </button>
+            </div>
+            <input
+              ref={trayIconInputRef}
+              type="file"
+              accept=".png,.ico,.jpg,.jpeg,.gif,.bmp"
+              style={{ display: "none" }}
+              onChange={handleSetTrayIconFromFile}
+            />
+            <button
+              className="test-btn"
+              type="button"
+              onClick={() => trayIconInputRef.current?.click()}
+            >
+              Set icon from file
+            </button>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <input type="checkbox" onChange={(e) => handleSetTrayVisible(e.target.checked)} />
+              Set visible
+            </label>
+            <label style={{ display: "flex", alignItems: "center", gap: "0.5rem" }}>
+              <input type="checkbox" onChange={(e) => handleSetMenuOnLeftClick(e.target.checked)} />
+              Menu on left click
+            </label>
+            <button className="test-btn" onClick={handleAppendTrayItemFromJs}>
+              Append item from JS
+            </button>
+            <button className="test-btn" onClick={handleSetShowWindowLabel}>
+              Set &quot;Show Window&quot; label
+            </button>
+            <button className="test-btn" onClick={handleRemoveJsDemoItem}>
+              Remove &quot;Added from JS&quot; item
+            </button>
+          </>
+        )}
+      </div>
+      {(trayIds.length > 0 || lastTrayMenuItemClicked || lastTrayIconEvent) && (
+        <div className="result-item" style={{ marginTop: 8, width: "100%", maxWidth: 480 }}>
+          <strong>Tray:</strong>{" "}
+          {trayIds.length > 0 ? `IDs: [${trayIds.join(", ")}]` : "No trays"}
+          {lastTrayMenuItemClicked && (
+            <div style={{ marginTop: 4 }}>
+              Last menu click: trayId={lastTrayMenuItemClicked.trayId}, itemId=&quot;{lastTrayMenuItemClicked.itemId}&quot;
+            </div>
+          )}
+          {lastTrayIconEvent && (
+            <div style={{ marginTop: 4 }}>
+              Last icon event: {lastTrayIconEvent.type}
+              {lastTrayIconEvent.position && ` at (${lastTrayIconEvent.position.x}, ${lastTrayIconEvent.position.y})`}
+              {lastTrayIconEvent.button != null && ` button=${lastTrayIconEvent.button}`}
+            </div>
+          )}
         </div>
       )}
 

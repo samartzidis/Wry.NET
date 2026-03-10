@@ -11,6 +11,10 @@ namespace SampleApp
         [STAThread]
         static void Main(string[] args)
         {
+            // Resolve dev URL from CLI arg (--dev-url=...) or environment variable.
+            var devUrl = args.FirstOrDefault(a => a.StartsWith("--dev-url="))?.Split('=', 2)[1]
+                      ?? Environment.GetEnvironmentVariable("WRY_DEV_URL");
+
             // Set up logging
             using var loggerFactory = LoggerFactory.Create(builder =>
             {
@@ -18,15 +22,14 @@ namespace SampleApp
                 builder.SetMinimumLevel(LogLevel.Debug);
             });
 
+            // Create the WryApp
+            using var app = new WryApp();
+
             // Set up the bridge and register services
-            var bridge = new WryBridge(loggerFactory.CreateLogger<WryBridge>());
-            bridge.RegisterDialogService();
+            var bridge = new WryBridge(loggerFactory.CreateLogger<WryBridge>());            
             bridge.RegisterService(new BackendService(bridge));
-
-            // Resolve dev URL from CLI arg (--dev-url=...) or environment variable.
-            var devUrl = args.FirstOrDefault(a => a.StartsWith("--dev-url="))?.Split('=', 2)[1]
-                      ?? Environment.GetEnvironmentVariable("WRY_DEV_URL");
-
+            bridge.RegisterServices(app);
+            
             // Prepare frontend (URL + protocol if embedded/disk) so we can pass at create time
             var options = new WryWindowCreateOptions();
             options.SetFrontend(devUrl: devUrl, assembly: Assembly.GetExecutingAssembly(), loggerFactory: loggerFactory);
@@ -36,14 +39,10 @@ namespace SampleApp
             options.DefaultContextMenus = false;
             var iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
             if (File.Exists(iconPath))
-                options.IconPath = iconPath;
-
-            options.AddBridge(bridge);
+                options.IconPath = iconPath;            
             options.Visible = false; // hidden until first page load finishes to avoid white flash
+            options.AddBridge(bridge); // add bridge to window options
 
-            using var app = new WryApp();
-
-            // --- Tray icon (set up before Run so it's ready) ---
             var menu = new WryTrayMenu();
             menu.AddItem("show", "Show Window");
             menu.AddItem("hide", "Hide Window");
@@ -58,7 +57,7 @@ namespace SampleApp
                 IconData = File.Exists(iconPath) ? File.ReadAllBytes(iconPath) : null,
                 Menu = menu,
             });
-
+            
             app.CreateWindow(options: options, onCreated: window =>
             {
                 window.PageLoad += (_, e) =>

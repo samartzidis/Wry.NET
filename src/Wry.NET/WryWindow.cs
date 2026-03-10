@@ -706,10 +706,10 @@ public sealed class WryWindow
 
     /// <summary>
     /// Dispatch an action to run on the event loop (main) thread.
-    /// Safe to call from any thread. The action receives this window
-    /// and can call post-run methods on it.
+    /// Safe to call from any thread. Use this to avoid re-entrancy when calling from
+    /// within a native callback (e.g. tray/menu events).
     /// </summary>
-    internal unsafe void Dispatch(Action<WryWindow> action)
+    public unsafe void Dispatch(Action<WryWindow> action)
     {
         var captured = (Window: this, Action: action);
         var handle = GCHandle.Alloc(captured);

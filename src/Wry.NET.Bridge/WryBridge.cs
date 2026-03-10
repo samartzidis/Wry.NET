@@ -97,7 +97,14 @@ public class WryBridge
 
         window.IpcMessageReceived += (sender, e) => HandleMessage(sender, e.Message);
         window.WindowDestroyed += OnAttachedWindowDestroyed;
+        WindowAttached?.Invoke(window);
     }
+
+    /// <summary>
+    /// Raised when a window is attached to the bridge. Services that need per-window
+    /// event subscriptions (e.g. focus, resize) should subscribe to this before <c>app.Run()</c>.
+    /// </summary>
+    internal event Action<WryWindow>? WindowAttached;
 
     private void OnAttachedWindowDestroyed(object? sender, EventArgs _)
     {
@@ -357,6 +364,8 @@ public class WryBridge
 
     /// <summary>
     /// Sends a raw JSON string to a specific window's JS via EvalJs.
+    /// Defers the actual eval to the next event-loop iteration to avoid re-entrancy
+    /// when called from native callbacks (e.g. tray icon or menu events).
     /// </summary>
     private void SendToJs(WryWindow? window, string json)
     {
@@ -364,14 +373,18 @@ public class WryBridge
 
         var escaped = json.Replace("\\", "\\\\").Replace("'", "\\'").Replace("\n", "\\n").Replace("\r", "\\r");
 
-        try
+        win.Dispatch(_ =>
         {
-            win.EvalJs($"window.__bridge_receive('{escaped}')");
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to send message via EvalJs");
-        }
+            if (!win.IsLive) return;
+            try
+            {
+                win.EvalJs($"window.__bridge_receive('{escaped}')");
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to send message via EvalJs");
+            }
+        });
     }
 
     private sealed record RegisteredService(object Instance, Dictionary<string, MethodInfo> Methods);

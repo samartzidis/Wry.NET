@@ -1,3 +1,5 @@
+using Wry.NET;
+
 namespace Wry.NET.Bridge;
 
 /// <summary>
@@ -6,13 +8,17 @@ namespace Wry.NET.Bridge;
 public static class WryBridgeExtensions
 {
     /// <summary>
-    /// Registers the built-in Dialog service (message, ask, confirm, open, save).
-    /// Callable from the frontend as <c>Dialog.Message</c>, <c>Dialog.Ask</c>, etc.
+    /// Registers all built-in bridge services: Dialog, Tray, and Window.
+    /// Call after creating the WryApp and before <c>app.Run()</c>.
     /// </summary>
+    /// <param name="bridge">The bridge.</param>
+    /// <param name="app">The WryApp whose windows and tray icons are exposed.</param>
     /// <returns>The bridge for fluent chaining.</returns>
-    public static WryBridge RegisterDialogService(this WryBridge bridge)
+    public static WryBridge RegisterServices(this WryBridge bridge, WryApp app)
     {
         bridge.RegisterService(new Services.DialogService());
+        bridge.RegisterService(new Services.TrayService(app, bridge));
+        bridge.RegisterService(new Services.WindowService(app, bridge));
         return bridge;
     }
 }

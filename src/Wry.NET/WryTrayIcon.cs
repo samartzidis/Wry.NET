@@ -52,6 +52,9 @@ public sealed class WryTrayIcon
 
     internal void SetTrayId(nuint id) => _trayId = id;
 
+    /// <summary>Opaque tray ID for use in bridge/JS (e.g. TrayService methods).</summary>
+    public nuint TrayId => _trayId;
+
     internal nint GCHandlePtr => GCHandle.ToIntPtr(_gcHandle);
 
     /// <summary>Whether the tray icon has been materialized (post-run).</summary>
