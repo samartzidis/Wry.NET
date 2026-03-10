@@ -3,7 +3,7 @@ namespace Wry.NET.Bridge.Services;
 /// <summary>
 /// Bridge service exposing native dialogs (message, ask, confirm, open, save).
 /// Dialogs are automatically modal to the calling window via <see cref="CallContext"/>.
-/// Prefer <c>bridge.RegisterDialogService()</c> to register; or <c>bridge.RegisterService(new DialogService())</c>.
+/// Registered automatically by <see cref="WryBridge"/>.
 /// </summary>
 [BridgeService]
 public class DialogService

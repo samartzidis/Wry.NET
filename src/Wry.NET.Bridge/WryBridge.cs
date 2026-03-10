@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Wry.NET;
 
 namespace Wry.NET.Bridge;
 
@@ -16,6 +17,7 @@ public class WryBridge
     private readonly Dictionary<string, RegisteredService> _services = new();
     private readonly ILogger<WryBridge> _logger;
     private readonly List<WryWindow> _attachedWindows = [];
+    private readonly WryApp _app;
 
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
@@ -31,12 +33,20 @@ public class WryBridge
     private readonly ConcurrentDictionary<string, CancellationTokenSource> _inFlightCalls = new();
 
     /// <summary>
-    /// Creates a new WryBridge instance.
+    /// Creates a new WryBridge instance and registers the built-in services
+    /// (Dialog, Tray, Window).
     /// </summary>
+    /// <param name="app">The WryApp instance.</param>
     /// <param name="logger">Optional logger. Pass <c>null</c> to disable logging.</param>
-    public WryBridge(ILogger<WryBridge>? logger = null)
+    public WryBridge(WryApp app, ILogger<WryBridge>? logger = null)
     {
+        ArgumentNullException.ThrowIfNull(app);
+        _app = app;
         _logger = logger ?? NullLogger<WryBridge>.Instance;
+
+        RegisterService(new Services.DialogService());
+        RegisterService(new Services.TrayService(app, this));
+        RegisterService(new Services.WindowService(app, this));
     }
 
     /// <summary>

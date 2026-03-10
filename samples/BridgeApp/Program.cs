@@ -26,9 +26,8 @@ namespace SampleApp
             using var app = new WryApp();
 
             // Set up the bridge and register services
-            var bridge = new WryBridge(loggerFactory.CreateLogger<WryBridge>());            
+            var bridge = new WryBridge(app, loggerFactory.CreateLogger<WryBridge>());
             bridge.RegisterService(new BackendService(bridge));
-            bridge.RegisterServices(app);
             
             // Prepare frontend (URL + protocol if embedded/disk) so we can pass at create time
             var options = new WryWindowCreateOptions();
@@ -40,8 +39,10 @@ namespace SampleApp
             var iconPath = Path.Combine(AppContext.BaseDirectory, "app.ico");
             if (File.Exists(iconPath))
                 options.IconPath = iconPath;            
-            options.Visible = false; // hidden until first page load finishes to avoid white flash
-            options.AddBridge(bridge); // add bridge to window options
+            options.Visible = false; 
+
+            // This adds the bridge to the window options, so it will be attached to the window when it is created.
+            options.AddBridge(bridge); 
 
             var menu = new WryTrayMenu();
             menu.AddItem("show", "Show Window");

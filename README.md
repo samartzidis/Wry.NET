@@ -39,7 +39,7 @@ Its portability relies on .NET rather than in producing different native target 
 - **Events** — push typed events from .NET to JavaScript via `bridge.Emit()`
 - **Single-file publishing** — embed frontend assets into the executable and serve via custom URI scheme
 - **System tray icons** — cross-platform tray icons with context menus, click events, and dynamic icon updates
-- **Native dialogs** — message, ask, confirm, open file/folder, save file via `WryDialog` or the bridge's `RegisterDialogService()` with modal parent support
+- **Native dialogs** — message, ask, confirm, open file/folder, save file via `WryDialog` or the bridge's built-in `DialogService` with modal parent support
 - **Cookie management** — get, set, and delete cookies via `WryWindow` (maps to `System.Net.Cookie`)
 - **Zero-config build** — MSBuild `.targets` auto-imported via NuGet; `dotnet build` does everything
 - **Framework agnostic** — works with React, Vue, Svelte, Angular, or plain TypeScript
@@ -119,9 +119,10 @@ class Program
     [STAThread]
     static void Main(string[] args)
     {
-        var bridge = new WryBridge();
-        bridge.RegisterDialogService()
-            .RegisterService(new GreetService());
+        using var app = new WryApp();
+
+        var bridge = new WryBridge(app);
+        bridge.RegisterService(new GreetService());
 
         var devUrl = args.FirstOrDefault(a => a.StartsWith("--dev-url="))?.Split('=', 2)[1];
 
@@ -134,7 +135,6 @@ class Program
         options.SetFrontend(devUrl: devUrl, assembly: Assembly.GetExecutingAssembly());
         options.AddBridge(bridge);
 
-        using var app = new WryApp();
         app.CreateWindow(options: options, onCreated: window =>
         {
             window.Center();
