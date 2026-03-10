@@ -87,10 +87,10 @@ public class WindowService
     {
         var windowId = (long)window.Id;
 
-        EventHandler<FocusChangedEventArgs>? focusHandler = (_, e) => _bridge.Emit("windowFocusChanged", new WindowFocusChangedEvent { WindowId = windowId, Focused = e.Focused });
-        EventHandler<SizeChangedEventArgs>? resizeHandler = (_, e) => _bridge.Emit("windowResized", new WindowResizedEvent { WindowId = windowId, Width = e.Width, Height = e.Height });
-        EventHandler<PositionChangedEventArgs>? moveHandler = (_, e) => _bridge.Emit("windowMoved", new WindowMovedEvent { WindowId = windowId, X = e.X, Y = e.Y });
-        EventHandler<CloseRequestedEventArgs>? closeHandler = (_, _) => _bridge.Emit("windowCloseRequested", new WindowCloseRequestedEvent { WindowId = windowId });
+        EventHandler<FocusChangedEventArgs>? focusHandler = (_, e) => _bridge.EmitToWindow(window, "windowFocusChanged", new WindowFocusChangedEvent { WindowId = windowId, Focused = e.Focused });
+        EventHandler<SizeChangedEventArgs>? resizeHandler = (_, e) => _bridge.EmitToWindow(window, "windowResized", new WindowResizedEvent { WindowId = windowId, Width = e.Width, Height = e.Height });
+        EventHandler<PositionChangedEventArgs>? moveHandler = (_, e) => _bridge.EmitToWindow(window, "windowMoved", new WindowMovedEvent { WindowId = windowId, X = e.X, Y = e.Y });
+        EventHandler<CloseRequestedEventArgs>? closeHandler = (_, _) => _bridge.EmitToWindow(window, "windowCloseRequested", new WindowCloseRequestedEvent { WindowId = windowId });
 
         window.FocusChanged += focusHandler;
         window.Resized += resizeHandler;

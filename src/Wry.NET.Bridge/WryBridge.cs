@@ -355,6 +355,21 @@ public class WryBridge
     }
 
     /// <summary>
+    /// Emit an event only to the specified window's JS frontend. Use for window-scoped events
+    /// (e.g. focus, resize, close requested) so only that window receives them.
+    /// </summary>
+    /// <param name="window">The window to send to; null is a no-op.</param>
+    /// <param name="eventName">The event name.</param>
+    /// <param name="data">Optional payload.</param>
+    public void EmitToWindow(WryWindow? window, string eventName, object? data = null)
+    {
+        if (window is null) return;
+        var msg = new BridgeEventMessage { Event = eventName, Data = data };
+        var json = JsonSerializer.Serialize(msg, JsonOptions);
+        SendToJs(window, json);
+    }
+
+    /// <summary>
     /// Sends a JSON response to the window that sent the request.
     /// </summary>
     private void SendResponse(WryWindow? targetWindow, BridgeResponse response)
