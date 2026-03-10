@@ -489,6 +489,26 @@ internal static partial class NativeMethods
     internal static partial void wry_tray_check_item_set_checked(nint tray, string id, [MarshalAs(UnmanagedType.U1)] bool @checked);
 
     // -----------------------------------------------------------------------
+    // Tray dynamic menu item append / insert / remove
+    // -----------------------------------------------------------------------
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void wry_tray_menu_item_append(
+        nint tray, string? parentId, int kind, string? id, string? label,
+        [MarshalAs(UnmanagedType.U1)] bool @checked, [MarshalAs(UnmanagedType.U1)] bool enabled);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void wry_tray_menu_item_insert(
+        nint tray, string? parentId, int position, int kind, string? id, string? label,
+        [MarshalAs(UnmanagedType.U1)] bool @checked, [MarshalAs(UnmanagedType.U1)] bool enabled);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void wry_tray_menu_item_remove(nint tray, string id);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void wry_tray_menu_item_remove_at(nint tray, string? parentId, int position);
+
+    // -----------------------------------------------------------------------
     // Tray cross-thread dispatch & removal
     // -----------------------------------------------------------------------
 

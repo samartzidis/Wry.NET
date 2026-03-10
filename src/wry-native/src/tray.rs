@@ -49,7 +49,7 @@ enum WryTrayMenuItem {
 }
 
 /// A live muda menu item handle, keyed by user-provided string ID.
-enum LiveMenuItem {
+pub(crate) enum LiveMenuItem {
     Item(tray_menu::MenuItem),
     Check(tray_menu::CheckMenuItem),
     Submenu(tray_menu::Submenu),
@@ -85,6 +85,14 @@ impl LiveMenuItem {
             Self::Item(i) => i.set_enabled(enabled),
             Self::Check(i) => i.set_enabled(enabled),
             Self::Submenu(i) => i.set_enabled(enabled),
+        }
+    }
+
+    fn as_is_menu_item(&self) -> &dyn tray_menu::IsMenuItem {
+        match self {
+            Self::Item(i) => i,
+            Self::Check(i) => i,
+            Self::Submenu(i) => i,
         }
     }
 }
@@ -280,7 +288,8 @@ pub struct WryTray {
     // --- Live state (populated during app_run) ---
     tray: Option<tray_icon::TrayIcon>,
     pub(crate) menu_item_ids: Vec<String>,
-    live_items: HashMap<String, LiveMenuItem>,
+    pub(crate) live_items: HashMap<String, LiveMenuItem>,
+    live_menu: Option<tray_menu::Menu>,
 }
 
 impl WryTray {
@@ -292,6 +301,7 @@ impl WryTray {
             tray: None,
             menu_item_ids: Vec::new(),
             live_items: HashMap::new(),
+            live_menu: None,
         }
     }
 
@@ -315,6 +325,7 @@ impl WryTray {
             let (muda_menu, live_items) = menu_data.build();
             menu_data.collect_ids(&mut self.menu_item_ids);
             self.live_items = live_items;
+            self.live_menu = Some(muda_menu.clone());
             builder = builder.with_menu(Box::new(muda_menu));
         }
         builder = builder.with_menu_on_left_click(payload.menu_on_left_click);
@@ -390,6 +401,81 @@ impl WryTray {
     pub(crate) fn handle_dispatch(&mut self, callback: TrayDispatchCallback, ctx: usize) {
         let tray_ptr = self as *mut WryTray;
         callback(tray_ptr, ctx as *mut c_void);
+    }
+
+    /// Append a newly created item to either the top-level menu (parent_id empty)
+    /// or a submenu identified by parent_id.
+    fn append_to_parent(&self, parent_id: &str, item: &dyn tray_menu::IsMenuItem) -> bool {
+        if parent_id.is_empty() {
+            if let Some(ref menu) = self.live_menu {
+                return menu.append(item).is_ok();
+            }
+        } else if let Some(LiveMenuItem::Submenu(ref sub)) = self.live_items.get(parent_id) {
+            return sub.append(item).is_ok();
+        }
+        false
+    }
+
+    /// Insert a newly created item at `position` in either the top-level menu
+    /// (parent_id empty) or a submenu identified by parent_id.
+    fn insert_in_parent(&self, parent_id: &str, position: usize, item: &dyn tray_menu::IsMenuItem) -> bool {
+        if parent_id.is_empty() {
+            if let Some(ref menu) = self.live_menu {
+                return menu.insert(item, position).is_ok();
+            }
+        } else if let Some(LiveMenuItem::Submenu(ref sub)) = self.live_items.get(parent_id) {
+            return sub.insert(item, position).is_ok();
+        }
+        false
+    }
+
+    /// Remove an item by ID. Tries the top-level menu and all submenus.
+    fn remove_by_id(&mut self, id: &str) -> bool {
+        let item = match self.live_items.get(id) {
+            Some(item) => item,
+            None => return false,
+        };
+        let dyn_item = item.as_is_menu_item();
+        let mut removed = false;
+        if let Some(ref menu) = self.live_menu {
+            if menu.remove(dyn_item).is_ok() {
+                removed = true;
+            }
+        }
+        if !removed {
+            for (k, v) in &self.live_items {
+                if k == id { continue; }
+                if let LiveMenuItem::Submenu(ref sub) = v {
+                    if sub.remove(dyn_item).is_ok() {
+                        removed = true;
+                        break;
+                    }
+                }
+            }
+        }
+        if removed {
+            // If we removed a submenu, also remove all its children
+            if let Some(LiveMenuItem::Submenu(ref sub)) = self.live_items.get(id) {
+                let child_ids: Vec<String> = sub.items()
+                    .into_iter()
+                    .filter_map(|kind| {
+                        let mid: &tray_menu::MenuId = match &kind {
+                            tray_menu::MenuItemKind::MenuItem(i) => i.id(),
+                            tray_menu::MenuItemKind::Check(i) => i.id(),
+                            tray_menu::MenuItemKind::Submenu(i) => i.id(),
+                            tray_menu::MenuItemKind::Predefined(i) => i.id(),
+                            tray_menu::MenuItemKind::Icon(i) => i.id(),
+                        };
+                        Some(mid.as_ref().to_string())
+                    })
+                    .collect();
+                for cid in &child_ids {
+                    self.live_items.remove(cid);
+                }
+            }
+            self.live_items.remove(id);
+        }
+        removed
     }
 }
 
@@ -637,11 +723,13 @@ pub extern "C" fn wry_tray_set_menu(tray: *mut WryTray, menu: *mut WryTrayMenu) 
     if let Some(ref t) = tray.tray {
         if menu.is_null() {
             tray.live_items.clear();
+            tray.live_menu = None;
             t.set_menu(None);
         } else {
             let menu_data = unsafe { Box::from_raw(menu) };
             let (muda_menu, live_items) = menu_data.build();
             tray.live_items = live_items;
+            tray.live_menu = Some(muda_menu.clone());
             t.set_menu(Some(Box::new(muda_menu)));
         }
     }
@@ -758,6 +846,156 @@ pub extern "C" fn wry_tray_check_item_set_checked(
     let id = unsafe { c_str_to_string(id) };
     if let Some(LiveMenuItem::Check(mi)) = tray.live_items.get(&id) {
         mi.set_checked(checked);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Dynamic menu item append / insert / remove
+// ---------------------------------------------------------------------------
+
+/// Append a new menu item to a live tray menu.
+///
+/// - `parent_id`: null or empty = top-level menu; otherwise the ID of a submenu.
+/// - `kind`: 0=Item, 1=Check, 2=Submenu, 3=Separator.
+/// - `id`, `label`: used for Item/Check/Submenu (ignored for Separator).
+/// - `checked`: initial checked state (only for Check, kind=1).
+/// - `enabled`: enabled state (ignored for Separator).
+#[no_mangle]
+pub extern "C" fn wry_tray_menu_item_append(
+    tray: *mut WryTray,
+    parent_id: *const c_char,
+    kind: c_int,
+    id: *const c_char,
+    label: *const c_char,
+    checked: bool,
+    enabled: bool,
+) {
+    if tray.is_null() { return; }
+    let tray = unsafe { &mut *tray };
+    let parent = unsafe { c_str_to_string(parent_id) };
+    let item_id = unsafe { c_str_to_string(id) };
+    let item_label = unsafe { c_str_to_string(label) };
+    match kind {
+        0 => {
+            let mi = tray_menu::MenuItem::with_id(item_id.as_str(), &item_label, enabled, None);
+            if tray.append_to_parent(&parent, &mi) {
+                tray.live_items.insert(item_id, LiveMenuItem::Item(mi));
+            }
+        }
+        1 => {
+            let mi = tray_menu::CheckMenuItem::with_id(item_id.as_str(), &item_label, enabled, checked, None);
+            if tray.append_to_parent(&parent, &mi) {
+                tray.live_items.insert(item_id, LiveMenuItem::Check(mi));
+            }
+        }
+        2 => {
+            let sub = tray_menu::Submenu::with_id(item_id.as_str(), &item_label, enabled);
+            if tray.append_to_parent(&parent, &sub) {
+                tray.live_items.insert(item_id, LiveMenuItem::Submenu(sub));
+            }
+        }
+        3 => {
+            let sep = tray_menu::PredefinedMenuItem::separator();
+            tray.append_to_parent(&parent, &sep);
+        }
+        _ => {}
+    }
+}
+
+/// Insert a new menu item at a position in a live tray menu.
+///
+/// Parameters are the same as `wry_tray_menu_item_append`, with an added `position` index.
+#[no_mangle]
+pub extern "C" fn wry_tray_menu_item_insert(
+    tray: *mut WryTray,
+    parent_id: *const c_char,
+    position: c_int,
+    kind: c_int,
+    id: *const c_char,
+    label: *const c_char,
+    checked: bool,
+    enabled: bool,
+) {
+    if tray.is_null() { return; }
+    let tray = unsafe { &mut *tray };
+    let parent = unsafe { c_str_to_string(parent_id) };
+    let pos = position.max(0) as usize;
+    let item_id = unsafe { c_str_to_string(id) };
+    let item_label = unsafe { c_str_to_string(label) };
+    match kind {
+        0 => {
+            let mi = tray_menu::MenuItem::with_id(item_id.as_str(), &item_label, enabled, None);
+            if tray.insert_in_parent(&parent, pos, &mi) {
+                tray.live_items.insert(item_id, LiveMenuItem::Item(mi));
+            }
+        }
+        1 => {
+            let mi = tray_menu::CheckMenuItem::with_id(item_id.as_str(), &item_label, enabled, checked, None);
+            if tray.insert_in_parent(&parent, pos, &mi) {
+                tray.live_items.insert(item_id, LiveMenuItem::Check(mi));
+            }
+        }
+        2 => {
+            let sub = tray_menu::Submenu::with_id(item_id.as_str(), &item_label, enabled);
+            if tray.insert_in_parent(&parent, pos, &sub) {
+                tray.live_items.insert(item_id, LiveMenuItem::Submenu(sub));
+            }
+        }
+        3 => {
+            let sep = tray_menu::PredefinedMenuItem::separator();
+            tray.insert_in_parent(&parent, pos, &sep);
+        }
+        _ => {}
+    }
+}
+
+/// Remove a menu item by ID from a live tray menu.
+/// Searches the top-level menu and all submenus for the item.
+/// If the removed item is a submenu, its children are also cleaned up.
+#[no_mangle]
+pub extern "C" fn wry_tray_menu_item_remove(
+    tray: *mut WryTray,
+    id: *const c_char,
+) {
+    if tray.is_null() { return; }
+    let tray = unsafe { &mut *tray };
+    let id = unsafe { c_str_to_string(id) };
+    tray.remove_by_id(&id);
+}
+
+/// Remove a menu item at a position from a live tray menu.
+///
+/// - `parent_id`: null or empty = top-level menu; otherwise the ID of a submenu.
+/// - `position`: zero-based index.
+#[no_mangle]
+pub extern "C" fn wry_tray_menu_item_remove_at(
+    tray: *mut WryTray,
+    parent_id: *const c_char,
+    position: c_int,
+) {
+    if tray.is_null() { return; }
+    let tray = unsafe { &mut *tray };
+    let parent = unsafe { c_str_to_string(parent_id) };
+    let pos = position.max(0) as usize;
+
+    let removed_kind = if parent.is_empty() {
+        tray.live_menu.as_ref().and_then(|m| m.remove_at(pos))
+    } else {
+        match tray.live_items.get(&parent) {
+            Some(LiveMenuItem::Submenu(ref sub)) => sub.remove_at(pos),
+            _ => None,
+        }
+    };
+
+    if let Some(kind) = removed_kind {
+        let removed_id: String = match &kind {
+            tray_menu::MenuItemKind::MenuItem(i) => i.id().as_ref().to_string(),
+            tray_menu::MenuItemKind::Check(i) => i.id().as_ref().to_string(),
+            tray_menu::MenuItemKind::Submenu(i) => i.id().as_ref().to_string(),
+            tray_menu::MenuItemKind::Predefined(i) => i.id().as_ref().to_string(),
+            tray_menu::MenuItemKind::Icon(i) => i.id().as_ref().to_string(),
+        };
+        tray.live_items.remove(&removed_id);
     }
 }
 

@@ -224,6 +224,9 @@ All dialog functions accept an optional `win` parameter (pointer to `WryWindow`,
 | **Menu** | Runtime item enabled | ✓ | `wry_tray_menu_item_is_enabled(tray, id)` / `wry_tray_menu_item_set_enabled(tray, id, enabled)` - get/set enabled on any item by ID |
 | **Menu** | `PredefinedMenuItem::separator()` | ✓ | `wry_tray_menu_add_separator` |
 | **Menu** | `Submenu` | ✓ | `wry_tray_menu_add_submenu(id, label, enabled)` - returns submenu pointer; runtime text/enabled via item API |
+| **Menu** | Dynamic append | ✓ | `wry_tray_menu_item_append(tray, parent_id, kind, id, label, checked, enabled)` - append Item/Check/Submenu/Separator to live menu |
+| **Menu** | Dynamic insert | ✓ | `wry_tray_menu_item_insert(tray, parent_id, position, kind, ...)` - insert at position |
+| **Menu** | Dynamic remove | ✓ | `wry_tray_menu_item_remove(tray, id)` - remove by ID; `wry_tray_menu_item_remove_at(tray, parent_id, position)` - remove at position |
 | **Menu** | (cleanup) | ✓ | `wry_tray_menu_destroy` |
 | **Menu** | Accelerators / keyboard shortcuts | ✗ | Not exposed |
 | **Menu** | `PredefinedMenuItem` (Copy, Paste, etc.) | ✗ | Only separator exposed |

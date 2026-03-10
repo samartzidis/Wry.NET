@@ -187,6 +187,106 @@ public sealed class WryTrayIcon
         => RunOnMainThread(t => NativeMethods.wry_tray_check_item_set_checked(t._nativePtr, itemId, @checked));
 
     // =======================================================================
+    // Dynamic menu item append / insert / remove
+    // =======================================================================
+
+    /// <summary>
+    /// Append a regular menu item to the live tray menu.
+    /// </summary>
+    /// <param name="parentId">Parent submenu ID, or null for the top-level menu.</param>
+    /// <param name="id">Unique string ID for the new item.</param>
+    /// <param name="label">Display text.</param>
+    /// <param name="enabled">Whether the item is enabled.</param>
+    public void AppendMenuItem(string? parentId, string id, string label, bool enabled = true)
+        => RunOnMainThread(t => NativeMethods.wry_tray_menu_item_append(t._nativePtr, parentId, 0, id, label, false, enabled));
+
+    /// <summary>
+    /// Append a check menu item to the live tray menu.
+    /// </summary>
+    /// <param name="parentId">Parent submenu ID, or null for the top-level menu.</param>
+    /// <param name="id">Unique string ID for the new item.</param>
+    /// <param name="label">Display text.</param>
+    /// <param name="checked">Initial checked state.</param>
+    /// <param name="enabled">Whether the item is enabled.</param>
+    public void AppendCheckMenuItem(string? parentId, string id, string label, bool @checked = false, bool enabled = true)
+        => RunOnMainThread(t => NativeMethods.wry_tray_menu_item_append(t._nativePtr, parentId, 1, id, label, @checked, enabled));
+
+    /// <summary>
+    /// Append a submenu to the live tray menu.
+    /// </summary>
+    /// <param name="parentId">Parent submenu ID, or null for the top-level menu.</param>
+    /// <param name="id">Unique string ID for the new submenu.</param>
+    /// <param name="label">Display text.</param>
+    /// <param name="enabled">Whether the submenu is enabled.</param>
+    public void AppendSubmenu(string? parentId, string id, string label, bool enabled = true)
+        => RunOnMainThread(t => NativeMethods.wry_tray_menu_item_append(t._nativePtr, parentId, 2, id, label, false, enabled));
+
+    /// <summary>
+    /// Append a separator to the live tray menu.
+    /// </summary>
+    /// <param name="parentId">Parent submenu ID, or null for the top-level menu.</param>
+    public void AppendSeparator(string? parentId = null)
+        => RunOnMainThread(t => NativeMethods.wry_tray_menu_item_append(t._nativePtr, parentId, 3, null, null, false, false));
+
+    /// <summary>
+    /// Insert a regular menu item at a position in the live tray menu.
+    /// </summary>
+    /// <param name="parentId">Parent submenu ID, or null for the top-level menu.</param>
+    /// <param name="position">Zero-based insertion index.</param>
+    /// <param name="id">Unique string ID for the new item.</param>
+    /// <param name="label">Display text.</param>
+    /// <param name="enabled">Whether the item is enabled.</param>
+    public void InsertMenuItem(string? parentId, int position, string id, string label, bool enabled = true)
+        => RunOnMainThread(t => NativeMethods.wry_tray_menu_item_insert(t._nativePtr, parentId, position, 0, id, label, false, enabled));
+
+    /// <summary>
+    /// Insert a check menu item at a position in the live tray menu.
+    /// </summary>
+    /// <param name="parentId">Parent submenu ID, or null for the top-level menu.</param>
+    /// <param name="position">Zero-based insertion index.</param>
+    /// <param name="id">Unique string ID for the new item.</param>
+    /// <param name="label">Display text.</param>
+    /// <param name="checked">Initial checked state.</param>
+    /// <param name="enabled">Whether the item is enabled.</param>
+    public void InsertCheckMenuItem(string? parentId, int position, string id, string label, bool @checked = false, bool enabled = true)
+        => RunOnMainThread(t => NativeMethods.wry_tray_menu_item_insert(t._nativePtr, parentId, position, 1, id, label, @checked, enabled));
+
+    /// <summary>
+    /// Insert a submenu at a position in the live tray menu.
+    /// </summary>
+    /// <param name="parentId">Parent submenu ID, or null for the top-level menu.</param>
+    /// <param name="position">Zero-based insertion index.</param>
+    /// <param name="id">Unique string ID for the new submenu.</param>
+    /// <param name="label">Display text.</param>
+    /// <param name="enabled">Whether the submenu is enabled.</param>
+    public void InsertSubmenu(string? parentId, int position, string id, string label, bool enabled = true)
+        => RunOnMainThread(t => NativeMethods.wry_tray_menu_item_insert(t._nativePtr, parentId, position, 2, id, label, false, enabled));
+
+    /// <summary>
+    /// Insert a separator at a position in the live tray menu.
+    /// </summary>
+    /// <param name="parentId">Parent submenu ID, or null for the top-level menu.</param>
+    /// <param name="position">Zero-based insertion index.</param>
+    public void InsertSeparator(string? parentId, int position)
+        => RunOnMainThread(t => NativeMethods.wry_tray_menu_item_insert(t._nativePtr, parentId, position, 3, null, null, false, false));
+
+    /// <summary>
+    /// Remove a menu item by its string ID from the live tray menu.
+    /// Searches the top-level menu and all submenus.
+    /// </summary>
+    /// <param name="id">The ID of the item to remove.</param>
+    public void RemoveMenuItem(string id)
+        => RunOnMainThread(t => NativeMethods.wry_tray_menu_item_remove(t._nativePtr, id));
+
+    /// <summary>
+    /// Remove a menu item at a position from the live tray menu.
+    /// </summary>
+    /// <param name="parentId">Parent submenu ID, or null for the top-level menu.</param>
+    /// <param name="position">Zero-based index of the item to remove.</param>
+    public void RemoveMenuItemAt(string? parentId, int position)
+        => RunOnMainThread(t => NativeMethods.wry_tray_menu_item_remove_at(t._nativePtr, parentId, position));
+
+    // =======================================================================
     // Icon setters
     // =======================================================================
 

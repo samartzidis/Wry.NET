@@ -1068,8 +1068,6 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
     let mut pending_trays: Vec<WryTray> = app.trays.drain().map(|(_, t)| t).collect();
     let mut pending_tray_payloads: HashMap<usize, tray::TrayCreatePayload> = app.tray_payloads.drain().collect();
     let mut live_trays: HashMap<usize, WryTray> = HashMap::new();
-    // Map from menu item string ID to tray usize ID for event routing.
-    let mut menu_id_to_tray: HashMap<String, usize> = HashMap::new();
 
     // Exit-requested callback (fired when all windows are closed).
     let exit_requested_handler = app.exit_requested_handler.take();
@@ -1131,9 +1129,6 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
                     let our_id = tray.id;
                     if let Some(payload) = pending_tray_payloads.remove(&our_id) {
                         tray.create(&payload);
-                    }
-                    for mid in &tray.menu_item_ids {
-                        menu_id_to_tray.insert(mid.clone(), our_id);
                     }
                     live_trays.insert(our_id, tray);
                 }
@@ -1259,9 +1254,10 @@ pub extern "C" fn wry_app_run(app: *mut WryApp) {
 
                 UserEvent::TrayMenuEvent(ref event) => {
                     let menu_id: &str = event.id.as_ref();
-                    if let Some(&our_id) = menu_id_to_tray.get(menu_id) {
-                        if let Some(t) = live_trays.get(&our_id) {
+                    for t in live_trays.values() {
+                        if t.live_items.contains_key(menu_id) {
                             t.handle_menu_event(menu_id);
+                            break;
                         }
                     }
                 }
