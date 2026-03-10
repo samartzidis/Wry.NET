@@ -134,6 +134,59 @@ public sealed class WryTrayIcon
     }
 
     // =======================================================================
+    // Menu item runtime getters/setters (by item string ID)
+    // =======================================================================
+
+    /// <summary>
+    /// Get the text of a menu item. Returns null if the item ID is not found.
+    /// </summary>
+    /// <param name="itemId">The string ID of the menu item.</param>
+    public string? GetMenuItemText(string itemId)
+        => _nativePtr == 0 ? null : NativeMethods.ReadAndFreeNativeString(
+            NativeMethods.wry_tray_menu_item_text(_nativePtr, itemId));
+
+    /// <summary>
+    /// Set the text of a menu item. No-op if the item ID is not found.
+    /// </summary>
+    /// <param name="itemId">The string ID of the menu item.</param>
+    /// <param name="text">The new display text.</param>
+    public void SetMenuItemText(string itemId, string text)
+        => RunOnMainThread(t => NativeMethods.wry_tray_menu_item_set_text(t._nativePtr, itemId, text));
+
+    /// <summary>
+    /// Returns whether a menu item is enabled.
+    /// Returns false if the item ID is not found.
+    /// </summary>
+    /// <param name="itemId">The string ID of the menu item.</param>
+    public bool IsMenuItemEnabled(string itemId)
+        => _nativePtr != 0 && NativeMethods.wry_tray_menu_item_is_enabled(_nativePtr, itemId);
+
+    /// <summary>
+    /// Enable or disable a menu item. No-op if the item ID is not found.
+    /// </summary>
+    /// <param name="itemId">The string ID of the menu item.</param>
+    /// <param name="enabled">Whether the item should be enabled.</param>
+    public void SetMenuItemEnabled(string itemId, bool enabled)
+        => RunOnMainThread(t => NativeMethods.wry_tray_menu_item_set_enabled(t._nativePtr, itemId, enabled));
+
+    /// <summary>
+    /// Returns whether a check menu item is currently checked.
+    /// Returns false if the item ID is not found or is not a check item.
+    /// </summary>
+    /// <param name="itemId">The string ID of the check menu item.</param>
+    public bool IsMenuItemChecked(string itemId)
+        => _nativePtr != 0 && NativeMethods.wry_tray_check_item_is_checked(_nativePtr, itemId);
+
+    /// <summary>
+    /// Set the checked state of a check menu item.
+    /// No-op if the item ID is not found or is not a check item.
+    /// </summary>
+    /// <param name="itemId">The string ID of the check menu item.</param>
+    /// <param name="checked">The new checked state.</param>
+    public void SetMenuItemChecked(string itemId, bool @checked)
+        => RunOnMainThread(t => NativeMethods.wry_tray_check_item_set_checked(t._nativePtr, itemId, @checked));
+
+    // =======================================================================
     // Icon setters
     // =======================================================================
 

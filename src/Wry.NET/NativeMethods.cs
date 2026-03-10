@@ -407,7 +407,7 @@ internal static partial class NativeMethods
     internal static partial void wry_tray_menu_add_separator(nint menu);
 
     [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
-    internal static partial nint wry_tray_menu_add_submenu(nint menu, string label, [MarshalAs(UnmanagedType.U1)] bool enabled);
+    internal static partial nint wry_tray_menu_add_submenu(nint menu, string id, string label, [MarshalAs(UnmanagedType.U1)] bool enabled);
 
     [LibraryImport(LibName)]
     internal static partial void wry_tray_menu_destroy(nint menu);
@@ -463,6 +463,30 @@ internal static partial class NativeMethods
 
     [LibraryImport(LibName)]
     internal static partial void wry_tray_set_icon_as_template(nint tray, [MarshalAs(UnmanagedType.U1)] bool isTemplate);
+
+    // -----------------------------------------------------------------------
+    // Tray menu item runtime getters/setters (by item string ID)
+    // -----------------------------------------------------------------------
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial nint wry_tray_menu_item_text(nint tray, string id);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void wry_tray_menu_item_set_text(nint tray, string id, string text);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    internal static partial bool wry_tray_menu_item_is_enabled(nint tray, string id);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void wry_tray_menu_item_set_enabled(nint tray, string id, [MarshalAs(UnmanagedType.U1)] bool enabled);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    [return: MarshalAs(UnmanagedType.U1)]
+    internal static partial bool wry_tray_check_item_is_checked(nint tray, string id);
+
+    [LibraryImport(LibName, StringMarshalling = StringMarshalling.Utf8)]
+    internal static partial void wry_tray_check_item_set_checked(nint tray, string id, [MarshalAs(UnmanagedType.U1)] bool @checked);
 
     // -----------------------------------------------------------------------
     // Tray cross-thread dispatch & removal

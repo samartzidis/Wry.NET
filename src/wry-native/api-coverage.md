@@ -218,10 +218,12 @@ All dialog functions accept an optional `win` parameter (pointer to `WryWindow`,
 | **Events** | `MenuEvent` | ✓ | `WryTrayCreateOptions.menu_event_callback` - menu item ID string |
 | **Threading** | (cross-thread) | ✓ | `wry_tray_dispatch` |
 | **Menu** | `Menu::new()` | ✓ | `wry_tray_menu_new` |
-| **Menu** | `MenuItem` | ✓ | `wry_tray_menu_add_item(id, label, enabled)` |
-| **Menu** | `CheckMenuItem` | ✓ | `wry_tray_menu_add_check_item(id, label, checked, enabled)` |
+| **Menu** | `MenuItem` | ✓ | `wry_tray_menu_add_item(id, label, enabled)` - build |
+| **Menu** | `CheckMenuItem` | ✓ | `wry_tray_menu_add_check_item(id, label, checked, enabled)` - build; `wry_tray_check_item_is_checked` / `wry_tray_check_item_set_checked` - runtime checked state |
+| **Menu** | Runtime item text | ✓ | `wry_tray_menu_item_text(tray, id)` / `wry_tray_menu_item_set_text(tray, id, text)` - get/set text on any item by ID |
+| **Menu** | Runtime item enabled | ✓ | `wry_tray_menu_item_is_enabled(tray, id)` / `wry_tray_menu_item_set_enabled(tray, id, enabled)` - get/set enabled on any item by ID |
 | **Menu** | `PredefinedMenuItem::separator()` | ✓ | `wry_tray_menu_add_separator` |
-| **Menu** | `Submenu` | ✓ | `wry_tray_menu_add_submenu(label, enabled)` - returns submenu pointer |
+| **Menu** | `Submenu` | ✓ | `wry_tray_menu_add_submenu(id, label, enabled)` - returns submenu pointer; runtime text/enabled via item API |
 | **Menu** | (cleanup) | ✓ | `wry_tray_menu_destroy` |
 | **Menu** | Accelerators / keyboard shortcuts | ✗ | Not exposed |
 | **Menu** | `PredefinedMenuItem` (Copy, Paste, etc.) | ✗ | Only separator exposed |

@@ -71,12 +71,13 @@ public sealed class WryTrayMenu : IDisposable
     /// that you can add items to. Do not dispose the returned submenu - it is
     /// owned by its parent.
     /// </summary>
+    /// <param name="id">Unique string ID for this submenu (used to get/set text and enabled state at runtime).</param>
     /// <param name="label">Display text for the submenu.</param>
     /// <param name="enabled">Whether the submenu is enabled (default true).</param>
-    public WryTrayMenu AddSubmenu(string label, bool enabled = true)
+    public WryTrayMenu AddSubmenu(string id, string label, bool enabled = true)
     {
         EnsureValid();
-        var sub = NativeMethods.wry_tray_menu_add_submenu(Handle, label, enabled);
+        var sub = NativeMethods.wry_tray_menu_add_submenu(Handle, id, label, enabled);
         if (sub == 0)
             throw new InvalidOperationException("Failed to create native submenu.");
         return new WryTrayMenu(sub);

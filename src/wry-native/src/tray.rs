@@ -2,6 +2,7 @@
 
 #![allow(clippy::missing_safety_doc)]
 
+use std::collections::HashMap;
 use std::ffi::{c_char, c_int, c_void, CString};
 
 use tray_icon::TrayIconBuilder;
@@ -44,82 +45,144 @@ enum WryTrayMenuItem {
     Item { id: String, label: String, enabled: bool },
     Check { id: String, label: String, checked: bool, enabled: bool },
     Separator,
-    Submenu { label: String, enabled: bool, menu: WryTrayMenu },
+    Submenu { id: String, label: String, enabled: bool, menu: WryTrayMenu },
+}
+
+/// A live muda menu item handle, keyed by user-provided string ID.
+enum LiveMenuItem {
+    Item(tray_menu::MenuItem),
+    Check(tray_menu::CheckMenuItem),
+    Submenu(tray_menu::Submenu),
+}
+
+impl LiveMenuItem {
+    fn text(&self) -> String {
+        match self {
+            Self::Item(i) => i.text(),
+            Self::Check(i) => i.text(),
+            Self::Submenu(i) => i.text(),
+        }
+    }
+
+    fn set_text(&self, text: &str) {
+        match self {
+            Self::Item(i) => i.set_text(text),
+            Self::Check(i) => i.set_text(text),
+            Self::Submenu(i) => i.set_text(text),
+        }
+    }
+
+    fn is_enabled(&self) -> bool {
+        match self {
+            Self::Item(i) => i.is_enabled(),
+            Self::Check(i) => i.is_enabled(),
+            Self::Submenu(i) => i.is_enabled(),
+        }
+    }
+
+    fn set_enabled(&self, enabled: bool) {
+        match self {
+            Self::Item(i) => i.set_enabled(enabled),
+            Self::Check(i) => i.set_enabled(enabled),
+            Self::Submenu(i) => i.set_enabled(enabled),
+        }
+    }
 }
 
 impl WryTrayMenuItem {
-    fn append_to_menu(&self, menu: &tray_menu::Menu) {
+    fn append_to_menu(
+        &self,
+        menu: &tray_menu::Menu,
+        live: &mut HashMap<String, LiveMenuItem>,
+    ) {
         match self {
             WryTrayMenuItem::Item { id, label, enabled } => {
                 let mi = tray_menu::MenuItem::with_id(id.as_str(), label, *enabled, None);
                 let _ = menu.append(&mi);
+                live.insert(id.clone(), LiveMenuItem::Item(mi));
             }
             WryTrayMenuItem::Check { id, label, checked, enabled } => {
                 let mi = tray_menu::CheckMenuItem::with_id(
                     id.as_str(), label, *enabled, *checked, None,
                 );
                 let _ = menu.append(&mi);
+                live.insert(id.clone(), LiveMenuItem::Check(mi));
             }
             WryTrayMenuItem::Separator => {
                 let _ = menu.append(&tray_menu::PredefinedMenuItem::separator());
             }
-            WryTrayMenuItem::Submenu { label, enabled, menu: sub } => {
-                let submenu = tray_menu::Submenu::new(label, *enabled);
-                sub.append_items_to_submenu(&submenu);
+            WryTrayMenuItem::Submenu { id, label, enabled, menu: sub } => {
+                let submenu = tray_menu::Submenu::with_id(id.as_str(), label, *enabled);
+                sub.append_items_to_submenu(&submenu, live);
                 let _ = menu.append(&submenu);
+                live.insert(id.clone(), LiveMenuItem::Submenu(submenu));
             }
         }
     }
 
-    fn append_to_submenu(&self, target: &tray_menu::Submenu) {
+    fn append_to_submenu(
+        &self,
+        target: &tray_menu::Submenu,
+        live: &mut HashMap<String, LiveMenuItem>,
+    ) {
         match self {
             WryTrayMenuItem::Item { id, label, enabled } => {
                 let mi = tray_menu::MenuItem::with_id(id.as_str(), label, *enabled, None);
                 let _ = target.append(&mi);
+                live.insert(id.clone(), LiveMenuItem::Item(mi));
             }
             WryTrayMenuItem::Check { id, label, checked, enabled } => {
                 let mi = tray_menu::CheckMenuItem::with_id(
                     id.as_str(), label, *enabled, *checked, None,
                 );
                 let _ = target.append(&mi);
+                live.insert(id.clone(), LiveMenuItem::Check(mi));
             }
             WryTrayMenuItem::Separator => {
                 let _ = target.append(&tray_menu::PredefinedMenuItem::separator());
             }
-            WryTrayMenuItem::Submenu { label, enabled, menu: sub } => {
-                let submenu = tray_menu::Submenu::new(label, *enabled);
-                sub.append_items_to_submenu(&submenu);
+            WryTrayMenuItem::Submenu { id, label, enabled, menu: sub } => {
+                let submenu = tray_menu::Submenu::with_id(id.as_str(), label, *enabled);
+                sub.append_items_to_submenu(&submenu, live);
                 let _ = target.append(&submenu);
+                live.insert(id.clone(), LiveMenuItem::Submenu(submenu));
             }
         }
     }
 }
 
 impl WryTrayMenu {
-    fn append_items_to_submenu(&self, submenu: &tray_menu::Submenu) {
+    fn append_items_to_submenu(
+        &self,
+        submenu: &tray_menu::Submenu,
+        live: &mut HashMap<String, LiveMenuItem>,
+    ) {
         for item in &self.items {
-            item.append_to_submenu(submenu);
+            item.append_to_submenu(submenu, live);
         }
     }
 
-    fn build(&self) -> tray_menu::Menu {
+    fn build(&self) -> (tray_menu::Menu, HashMap<String, LiveMenuItem>) {
         let menu = tray_menu::Menu::new();
+        let mut live = HashMap::new();
         for item in &self.items {
-            item.append_to_menu(&menu);
+            item.append_to_menu(&menu, &mut live);
         }
-        menu
+        (menu, live)
     }
 
     fn collect_ids(&self, ids: &mut Vec<String>) {
         for item in &self.items {
             match item {
-                WryTrayMenuItem::Item { id, .. } | WryTrayMenuItem::Check { id, .. } => {
+                WryTrayMenuItem::Item { id, .. }
+                | WryTrayMenuItem::Check { id, .. }
+                | WryTrayMenuItem::Submenu { id, .. } => {
                     ids.push(id.clone());
                 }
-                WryTrayMenuItem::Submenu { menu, .. } => {
-                    menu.collect_ids(ids);
-                }
                 _ => {}
+            }
+            if let WryTrayMenuItem::Submenu { menu, .. } = item {
+                menu.collect_ids(ids);
             }
         }
     }
@@ -217,6 +280,7 @@ pub struct WryTray {
     // --- Live state (populated during app_run) ---
     tray: Option<tray_icon::TrayIcon>,
     pub(crate) menu_item_ids: Vec<String>,
+    live_items: HashMap<String, LiveMenuItem>,
 }
 
 impl WryTray {
@@ -227,6 +291,7 @@ impl WryTray {
             menu_event_handler: None,
             tray: None,
             menu_item_ids: Vec::new(),
+            live_items: HashMap::new(),
         }
     }
 
@@ -247,8 +312,9 @@ impl WryTray {
             }
         }
         if let Some(ref menu_data) = payload.menu {
-            let muda_menu = menu_data.build();
+            let (muda_menu, live_items) = menu_data.build();
             menu_data.collect_ids(&mut self.menu_item_ids);
+            self.live_items = live_items;
             builder = builder.with_menu(Box::new(muda_menu));
         }
         builder = builder.with_menu_on_left_click(payload.menu_on_left_click);
@@ -405,13 +471,16 @@ pub extern "C" fn wry_tray_menu_add_separator(menu: *mut WryTrayMenu) {
 #[no_mangle]
 pub extern "C" fn wry_tray_menu_add_submenu(
     menu: *mut WryTrayMenu,
+    id: *const c_char,
     label: *const c_char,
     enabled: bool,
 ) -> *mut WryTrayMenu {
     if menu.is_null() { return std::ptr::null_mut(); }
     let menu = unsafe { &mut *menu };
+    let id = unsafe { c_str_to_string(id) };
     let label = unsafe { c_str_to_string(label) };
     menu.items.push(WryTrayMenuItem::Submenu {
+        id,
         label,
         enabled,
         menu: WryTrayMenu { items: Vec::new() },
@@ -567,10 +636,12 @@ pub extern "C" fn wry_tray_set_menu(tray: *mut WryTray, menu: *mut WryTrayMenu) 
     let tray = unsafe { &mut *tray };
     if let Some(ref t) = tray.tray {
         if menu.is_null() {
+            tray.live_items.clear();
             t.set_menu(None);
         } else {
             let menu_data = unsafe { Box::from_raw(menu) };
-            let muda_menu = menu_data.build();
+            let (muda_menu, live_items) = menu_data.build();
+            tray.live_items = live_items;
             t.set_menu(Some(Box::new(muda_menu)));
         }
     }
@@ -593,6 +664,100 @@ pub extern "C" fn wry_tray_set_icon_as_template(tray: *mut WryTray, is_template:
     let tray = unsafe { &mut *tray };
     if let Some(ref t) = tray.tray {
         t.set_icon_as_template(is_template);
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Menu item runtime getters/setters (by item string ID)
+// ---------------------------------------------------------------------------
+
+/// Get the text of a menu item. Returns null if not found.
+/// The caller must free the returned string with `wry_string_free`.
+#[no_mangle]
+pub extern "C" fn wry_tray_menu_item_text(
+    tray: *mut WryTray,
+    id: *const c_char,
+) -> *mut c_char {
+    if tray.is_null() { return std::ptr::null_mut(); }
+    let tray = unsafe { &*tray };
+    let id = unsafe { c_str_to_string(id) };
+    tray.live_items.get(&id)
+        .and_then(|mi| CString::new(mi.text()).ok())
+        .map_or(std::ptr::null_mut(), |cs| cs.into_raw())
+}
+
+/// Set the text of a menu item. No-op if not found.
+#[no_mangle]
+pub extern "C" fn wry_tray_menu_item_set_text(
+    tray: *mut WryTray,
+    id: *const c_char,
+    text: *const c_char,
+) {
+    if tray.is_null() { return; }
+    let tray = unsafe { &*tray };
+    let id = unsafe { c_str_to_string(id) };
+    let text = unsafe { c_str_to_string(text) };
+    if let Some(mi) = tray.live_items.get(&id) {
+        mi.set_text(&text);
+    }
+}
+
+/// Returns whether a menu item is enabled. Returns false if not found.
+#[no_mangle]
+pub extern "C" fn wry_tray_menu_item_is_enabled(
+    tray: *mut WryTray,
+    id: *const c_char,
+) -> bool {
+    if tray.is_null() { return false; }
+    let tray = unsafe { &*tray };
+    let id = unsafe { c_str_to_string(id) };
+    tray.live_items.get(&id).map_or(false, |mi| mi.is_enabled())
+}
+
+/// Enable or disable a menu item. No-op if not found.
+#[no_mangle]
+pub extern "C" fn wry_tray_menu_item_set_enabled(
+    tray: *mut WryTray,
+    id: *const c_char,
+    enabled: bool,
+) {
+    if tray.is_null() { return; }
+    let tray = unsafe { &*tray };
+    let id = unsafe { c_str_to_string(id) };
+    if let Some(mi) = tray.live_items.get(&id) {
+        mi.set_enabled(enabled);
+    }
+}
+
+/// Returns whether a check menu item is currently checked.
+/// Returns false if the item is not found or is not a check item.
+#[no_mangle]
+pub extern "C" fn wry_tray_check_item_is_checked(
+    tray: *mut WryTray,
+    id: *const c_char,
+) -> bool {
+    if tray.is_null() { return false; }
+    let tray = unsafe { &*tray };
+    let id = unsafe { c_str_to_string(id) };
+    match tray.live_items.get(&id) {
+        Some(LiveMenuItem::Check(mi)) => mi.is_checked(),
+        _ => false,
+    }
+}
+
+/// Set the checked state of a check menu item.
+/// No-op if the item is not found or is not a check item.
+#[no_mangle]
+pub extern "C" fn wry_tray_check_item_set_checked(
+    tray: *mut WryTray,
+    id: *const c_char,
+    checked: bool,
+) {
+    if tray.is_null() { return; }
+    let tray = unsafe { &*tray };
+    let id = unsafe { c_str_to_string(id) };
+    if let Some(LiveMenuItem::Check(mi)) = tray.live_items.get(&id) {
+        mi.set_checked(checked);
     }
 }
 
